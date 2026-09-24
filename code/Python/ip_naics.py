@@ -2,8 +2,8 @@
 y guarda las series por rama NAICS en CSV.
 
 Salidas:
-  data/ip_naics_sa.csv      fecha x serie, índice 2017=100
-  data/ip_naics_series.csv  serie, descripción y código NAICS
+  data/raw/produccion_estados_unidos/ip_naics_sa.csv      fecha x serie, índice 2017=100
+  data/raw/produccion_estados_unidos/ip_naics_series.csv  serie, descripción y código NAICS
 """
 import re
 from pathlib import Path
@@ -12,7 +12,7 @@ import pandas as pd
 import requests
 
 URL = "https://www.federalreserve.gov/releases/g17/ipdisk/ip_sa.txt"
-OUT = Path(__file__).resolve().parent.parent / "data"
+OUT = Path(__file__).resolve().parents[2] / "data" / "raw" / "produccion_estados_unidos"
 
 HEADER = re.compile(r'^"([^"]+): (.*?)\s+NAICS=(\S+)"')
 
@@ -33,7 +33,7 @@ ip = (pd.DataFrame(rows, columns=["serie", "fecha", "indice"])
 series = pd.DataFrame([(s, d, n) for s, (d, n) in meta.items()],
                       columns=["serie", "descripcion", "naics"])
 
-OUT.mkdir(exist_ok=True)
+OUT.mkdir(parents=True, exist_ok=True)
 ip.to_csv(OUT / "ip_naics_sa.csv", date_format="%Y-%m-%d", float_format="%.4f")
 series.to_csv(OUT / "ip_naics_series.csv", index=False)
 print(f"{ip.shape[1]} series, {ip.index.min():%Y-%m} a {ip.index.max():%Y-%m}")

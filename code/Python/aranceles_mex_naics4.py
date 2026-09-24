@@ -4,8 +4,8 @@ desde México por NAICS a 4 dígitos y calcula la tasa arancelaria efectiva mens
 Requiere la variable de entorno CENSUS_API.
 
 Salidas:
-  data/aranceles_mex_naics4.csv        formato largo: fecha, naics, valores y tasas
-  data/tasa_efectiva_mex_naics4.csv    fecha x naics, aranceles / valor importado
+  data/raw/aranceles/aranceles_mex_naics4.csv          formato largo: fecha, naics, valores y tasas
+  data/interim/aranceles/tasa_efectiva_mex_naics4.csv  fecha x naics, aranceles / valor importado
 """
 import os
 from datetime import date
@@ -17,7 +17,9 @@ import requests
 URL = "https://api.census.gov/data/timeseries/intltrade/imports/naics"
 MEXICO = "2010"
 INICIO = 2013
-OUT = Path(__file__).resolve().parent.parent / "data"
+DATA = Path(__file__).resolve().parents[2] / "data"
+RAW = DATA / "raw" / "aranceles"
+INTERIM = DATA / "interim" / "aranceles"
 
 key = os.environ.get("CENSUS_API")
 if not key:
@@ -57,8 +59,9 @@ df["tasa_efectiva"] = df["aranceles"] / df["valor_importado"].where(df["valor_im
 df["tasa_gravable"] = df["aranceles"] / df["valor_gravable"].where(df["valor_gravable"] > 0)
 df = df.sort_values(["naics", "fecha"])
 
-OUT.mkdir(exist_ok=True)
-df.to_csv(OUT / "aranceles_mex_naics4.csv", index=False, date_format="%Y-%m-%d")
+RAW.mkdir(parents=True, exist_ok=True)
+INTERIM.mkdir(parents=True, exist_ok=True)
+df.to_csv(RAW / "aranceles_mex_naics4.csv", index=False, date_format="%Y-%m-%d")
 (df.pivot(index="fecha", columns="naics", values="tasa_efectiva")
-   .to_csv(OUT / "tasa_efectiva_mex_naics4.csv", date_format="%Y-%m-%d", float_format="%.6f"))
+   .to_csv(INTERIM / "tasa_efectiva_mex_naics4.csv", date_format="%Y-%m-%d", float_format="%.6f"))
 print(f"{df['naics'].nunique()} ramas, {df['fecha'].min():%Y-%m} a {df['fecha'].max():%Y-%m}")
