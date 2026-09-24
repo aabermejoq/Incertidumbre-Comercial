@@ -13,6 +13,7 @@ Registradas el 2026-09-24, con base en las respuestas del responsable del proyec
 5. **Datos confidenciales (`ND`) y faltantes:** se tratarán como valores faltantes. El análisis final usará solo información completa.
 6. **Periodo:** la información completa empieza en 2019-01 (límite de las exportaciones). Los ceros de 1991 del tipo de cambio quedan fuera de ese periodo y no requieren tratamiento.
 7. **Anomalías arancelarias** en las ramas 1119 y 3119: no requieren tratamiento especial (la 1119 queda fuera por no ser manufacturera).
+8. **Control de incertidumbre financiera global:** se incorpora el VIX (`MACRO_02`, FRED/CBOE). Otros controles (tipo de cambio real, TIIE) quedan pendientes de instrucciones.
 
 ## 1. Cobertura temporal y frecuencia
 
@@ -26,6 +27,7 @@ Registradas el 2026-09-24, con base en las respuestas del responsable del proyec
 | INC_02 – WUI / WTUI / WPUI (Ahir, Bloom y Furceri) | Mensual | 2008-01 | 2026-08 |
 | INC_03 – EPU México (Baker, Bloom y Davis) | Mensual | 1996-01 | 2026-08 |
 | MACRO_01 – Tipo de cambio FIX (Banxico) | Mensual | 1991-11 | 2026-08 |
+| MACRO_02 – VIX (CBOE vía FRED) | Diaria | 1990-01-02 | 2026-09-22 |
 | PRECIOS_01 – INPP por origen (INEGI) | Mensual | 1981-01 o 2010-06 (subsectores manufactureros) | 2026-08 |
 
 - El periodo común a **todas** las fuentes va de 2019-01 (inicio de las exportaciones) a 2026-07. Este es el periodo con información completa (decisión 6).
@@ -84,5 +86,5 @@ Registradas el 2026-09-24, con base en las respuestas del responsable del proyec
 1. ¿De dónde vienen y cómo se construyeron las series de la hoja `Autopartes` (`xparts`, `inpp336`, `xparts_r_ae`)?
 2. ¿Hay que confirmar con INEGI la base del INPP (julio de 2019 frente a julio de 2025)? ¿Vale la pena conseguir el INPP de *producción total* (que incluye bienes intermedios) como deflactor alternativo?
 3. ¿Qué método de ajuste estacional se usará, si se usa alguno?
-4. ¿Qué controles macroeconómicos adicionales se incorporarán? Hoy solo está el tipo de cambio nominal.
+4. ¿Qué otros controles macroeconómicos se incorporarán, además del tipo de cambio nominal y el VIX? ¿Con qué regla se agregará el VIX diario a mensual (promedio, fin de mes)?
 5. ¿Cómo se tratarán las clases de exportación que no están en la EMIM al agregar a nivel rama? Las 86 ramas coinciden, así que agregar por rama las incluye.

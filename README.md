@@ -63,6 +63,7 @@ La tabla resume las fuentes que hay en el repositorio. El detalle de cada archiv
 | ID | Archivo | Contenido | Fuente | Periodo | Frecuencia | Desagregación |
 |---|---|---|---|---|---|---|
 | MACRO_01 | `data/raw/controles_macroeconomicos/banxico_tipo_cambio_fix_mensual.xlsx` | Tipo de cambio FIX, pesos por dólar, promedio mensual (SF17908) | Banco de México | 1991-11 a 2026-08 | Mensual | Nacional |
+| MACRO_02 | `data/raw/controles_macroeconomicos/fred_vix_diario.csv` | VIX: volatilidad implícita del S&P 500 (incertidumbre financiera global) | CBOE, vía FRED (VIXCLS) | 1990-01-02 a 2026-09-22 | Diaria | Agregado (EE.UU.) |
 
 **Relaciones preliminares entre fuentes (sin verificar su compatibilidad):**
 - La EMIM y las exportaciones tienen las mismas 86 ramas SCIAN de 4 dígitos.
@@ -88,12 +89,12 @@ Ver las [notas metodológicas](docs/notas_metodologicas.md).
 │   │   ├── produccion_estados_unidos/    Producción industrial de EE.UU. (G.17) y su catálogo
 │   │   ├── incertidumbre/                TPU, WUI/WTUI/WPUI y EPU México
 │   │   ├── precios/                      INPP por origen (deflactores)
-│   │   └── controles_macroeconomicos/    Tipo de cambio FIX
+│   │   └── controles_macroeconomicos/    Tipo de cambio FIX y VIX
 │   ├── interim/                          Datos derivados o transformados
 │   │   └── aranceles/                    Tasa efectiva en formato ancho
 │   └── processed/                        (reservado) base integrada y validada
 ├── code/
-│   ├── Python/                           Scripts de descarga (Census y G.17)
+│   ├── Python/                           Scripts de descarga (Census, G.17 y VIX)
 │   └── R/                                (reservado) scripts y R Markdown de etapas posteriores
 ├── docs/
 │   ├── inventario_fuentes.csv            Inventario completo de archivos
@@ -111,12 +112,13 @@ Ver las [notas metodológicas](docs/notas_metodologicas.md).
 - **`code/Python/`** contiene los scripts de descarga:
   - `aranceles_mex_naics4.py`: descarga del Census; requiere la variable de entorno `CENSUS_API`.
   - `ip_naics.py`: descarga del G.17.
+  - `vix.py`: descarga del VIX diario de FRED.
 
 ## Decisiones acordadas
 
 Se usará el **valor real de la producción manufacturera** (SCIAN 31-33) de la EMIM por rama. Para obtenerlo, el valor nominal se deflactará con el INPP del subsector al que pertenece cada rama; la asignación está en [`docs/correspondencia_rama_inpp.csv`](docs/correspondencia_rama_inpp.csv).
 
-Las tres medidas de incertidumbre son TPU, WTUI y EPU México. Los valores confidenciales se tratarán como faltantes y el análisis usará información completa, que empieza en 2019-01.
+Las tres medidas de incertidumbre son TPU, WTUI y EPU México, y el VIX se usará como control de incertidumbre financiera global. Los valores confidenciales se tratarán como faltantes y el análisis usará información completa, que empieza en 2019-01.
 
 El detalle está en la sección 0 de las [notas metodológicas](docs/notas_metodologicas.md).
 
@@ -125,8 +127,8 @@ El detalle está en la sección 0 de las [notas metodológicas](docs/notas_metod
 | Actividad | Estado |
 |---|---|
 | Organización de los archivos | Completada |
-| Inventario de fuentes | Completado (13 archivos: 11 de datos y 2 scripts) |
-| Inspección de metadatos | Completada para los 11 archivos de datos: todas las hojas, dimensiones, encabezados, cobertura y códigos de clasificación. No se revisaron todas las celdas. |
+| Inventario de fuentes | Completado (15 archivos: 12 de datos y 3 scripts) |
+| Inspección de metadatos | Completada para los 12 archivos de datos: todas las hojas, dimensiones, encabezados, cobertura y códigos de clasificación. No se revisaron todas las celdas. |
 | Correspondencia rama–deflactor | Completada (86 ramas → 21 subsectores INPP) |
 | Limpieza de datos | Pendiente |
 | Integración de fuentes | Pendiente |
