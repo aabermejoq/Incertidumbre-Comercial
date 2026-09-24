@@ -1,0 +1,232 @@
+serie,descripcion,naics
+G321,Wood product,321
+G327,Nonmetallic mineral product,327
+G331,Primary metal,331
+G332,Fabricated metal product,332
+G333,Machinery,333
+G334,Computer and electronic product,334
+G335,"Electrical equipment, appliance, and component",335
+G3361T3,Motor vehicles and parts,3361-3
+G3364T9,Aerospace and miscellaneous transportation eq.,3364-9
+G337,Furniture and related product,337
+G339,Miscellaneous,339
+G311A2,"Food, beverage, and tobacco","311,2"
+G313A4,Textiles and products,"313,4"
+G315A6,Apparel and leather goods,"315,6"
+G322,Paper,322
+G323,Printing and related support activities,323
+G324,Petroleum and coal products,324
+G325,Chemical,325
+G326,Plastics and rubber products,326
+G21,Mining,21
+G2211A2,Electric and gas utilities,"2211,2"
+G2211,"Electric power generation, transmission, and distribution",2211
+G2212,Natural gas distribution,2212
+N213111,Drilling oil and gas wells,213111
+HITEK2,"Computers, communications eq., and semiconductors","3341,3342,3344"
+G3341,Computer and peripheral equipment,3341
+G3342,Communications equipment,3342
+G3344,Semiconductor and other electronic component,3344
+G3361,Motor vehicle,3361
+G3363,Motor vehicle parts,3363
+G211,Oil and gas extraction,211
+G21112,Crude oil,21112
+G21113,Natural gas and natural gas liquids,21113
+N21113G,Natural gas,211130pt.
+G21113PQ,Natural gas liquid extraction,211130pt.
+G212,Mining (except oil and gas),212
+N2121,Coal mining,2121
+G2122,Metal ore mining,2122
+N21221,Iron ore mining,21221
+G21222,Gold ore and silver ore mining,21222
+G21223,"Copper, nickel, lead, and zinc mining",21223
+G2123,Nonmetallic mineral mining and quarrying,2123
+G213,Support activities for mining,213
+G22111,Electric power generation,22111
+G221111A4T8,"Hydroelectric, renewables, and other","221111,4-8"
+N221111,Hydroelectric power generation,221111
+N221114T8,Renewables and other electric power generation,221114-8
+N221112,Fossil Fuel electric power generation,221112
+N221113,Nuclear electric power generation,221113
+G22112,"Electric power transmission, control, and distribution",22112
+N22112C,Commercial and other electricity sales,22112pt.
+N22112M,Industrial electricity sales,22112pt.
+N22112R,Residential electricity sales,22112pt.
+N2212C,Commercial and other gas sales,2212pt.
+N2212M,Industrial gas sales,2212pt.
+N2212R,Residential gas sales,2212pt.
+N2212T,Gas transmission,2212pt.
+G311,Food,311
+G3111,Animal food,3111
+G3112,Grain and oilseed milling,3112
+G3113,Sugar and confectionery product,3113
+G3114,Fruit and vegetable preserving and specialty food,3114
+G3115,Dairy product,3115
+G31151,Dairy product (except frozen),31151
+N311511,Fluid milk,311511
+N311512,Creamery butter,311512
+N311513,Cheese,311513
+N311514,"Dry, condensed, and evaporated dairy product",311514
+N31152,Ice cream and frozen dessert,31152
+G3116,Animal slaughtering and processing,3116
+G311611T3,Animal (except poultry) slaughtering and meat processing,311611-3
+N311611T3B,Beef,311611-3pt.
+N311611T3P,Pork,311611-3pt.
+N311611T3Z,Miscellaneous meats,311611-3pt.
+N311615,Poultry processing,311615
+N3118,Bakeries and tortilla,3118
+G3119,Other food,3119
+G31192,Coffee and tea,31192
+G312,Beverage and tobacco product,312
+G3121,Beverage,3121
+N31211,Soft drink and ice,31211
+N31212,Breweries,31212
+G3122,Tobacco,3122
+G313,Textile mills,313
+G3131,"Fiber, yarn, and thread mills",3131
+G3132,Fabric mills,3132
+G3133,Textile and fabric finishing and fabric coating mills,3133
+G314,Textile product mills,314
+G3141,Textile furnishings mills,3141
+G31411,Carpet and rug mills,31411
+G3149,Other textile product mills,3149
+G315,Apparel,315
+G316,Leather and allied product,316
+N3211,Sawmills and wood preservation,3211
+G3212A9,Plywood and misc. wood products,"3212,9"
+G3212,"Veneer, plywood, and engineered wood product",3212
+G321211A2,Veneer and plywood,"321211,2"
+G321219,Reconstituted wood product,321219
+G3219,Other wood product,3219
+G32191,Millwork,32191
+N32192,Wood container and pallet,32192
+G32199,All other wood product,32199
+N321991,Manufactured home (mobile home),321991
+G3221,"Pulp, paper, and paperboard mills",3221
+N32211,Pulp mills,32211
+G32212,Paper mills,32212
+N32212P,Paper (except newsprint) mills,322120pt.
+N32213,Paperboard mills,32213
+G3222,Converted paper product,3222
+N32221,Paperboard container,32221
+G32222,Paper bag and coated and treated paper,32222
+G32223A9,Other converted paper products,"32223,9"
+G32411,Petroleum refineries,32411
+N32411A,Aviation fuel and kerosene,32411pt.
+N32411D,Distillate fuel oil,32411pt.
+N32411G,Automotive gasoline,32411pt.
+N32411R,Residual fuel oil,32411pt.
+G32411X,Other refinery output,32411pt.
+N32412A9,"Paving, roofing, and other petroleum and coal products","32412,9"
+G3254,Pharmaceutical and medicine,3254
+G325@4,Chemicals except pharmaceuticals and medicines,"3251-3,5-9"
+G3251,Basic chemical,3251
+G32511A9,Organic chemicals,"32511,9"
+G32512T8,Basic inorganic chemicals,32512-8
+G32512,Industrial gas,32512
+G32513,Synthetic dye and pigment,32513
+G32518,Other basic inorganic chemical,32518pt.
+N32518C,Alkalies and chlorine,32518pt.
+G3252,"Resin, synthetic rubber, and artificial and synthetic fibers and filaments",3252
+G32521,Resin and synthetic rubber,32521
+N325211,Plastics material and resin,325211
+G325212,Synthetic rubber,325212
+G32522,Artificial and synthetic fibers and filaments,32522
+G3253,"Pesticide, fertilizer, and other agricultural chemical",3253
+G3255T9,"Paints, soaps and toiletries, and other chemical products",3255-9
+G3255A9,Paints and other chemical products,"3255,9"
+G3255,"Paint, coating, and adhesive",3255
+G32551,Paint and coating,32551
+G3256,"Soap, cleaning compound, and toilet preparation",3256
+G3261,Plastics product,3261
+G3262,Rubber product,3262
+G32621,Tire,32621
+G32622A9,Rubber products ex. tires,"32622,9"
+G3271A4A9,"Clay, lime, gypsum, and misc. nonmetallic mineral products","3271,4,9"
+G3271A9,Clay and misc. nonmetallic mineral products,"3271,9"
+G3271,Clay product and refractory,3271
+G32711,"Pottery, ceramics, and plumbing fixture",32711
+G32712,Clay building material and refractories,32712
+G3279,Other nonmetallic mineral product,3279
+G3274,Lime and gypsum product,3274
+G3272,Glass and glass product,3272
+G327213,Glass container,327213
+G3273,Cement and concrete product,3273
+N32731,Cement,32731
+N32732T9,Concrete and product,32732-9
+G3311A2,Iron and steel products,"3311,2"
+G3311A2Q,Pig iron,"3311,2pt."
+N3311A2R,Raw steel,"3311,2pt."
+G3311A2F,Coke and products,"3311,2pt."
+N3311A2B,Construction steel,"3311,2pt."
+N3311A2C,Consumer durable steel,"3311,2pt."
+N3311A2D,Can and closure steel,"3311,2pt."
+N3311A2E,Equipment steel,"3311,2pt."
+N3311A2Z,Miscellaneous steel,"3311,2pt."
+G3313A4,Nonferrous except foundries,"3313,4"
+G3313,Alumina and aluminum production and processing,3313
+N331313P,Primary aluminum production,331313pt.
+N331314,Secondary smelting and alloying of aluminum,331314
+N331315A8M,Misc. aluminum materials,"331315,8pt."
+N331318E,Aluminum extruded product,331318pt.
+G3314,Nonferrous metal (except aluminum) production and processing,3314
+G33141,Nonferrous metal (except aluminum) smelting and refining,33141
+G33141C,Primary smelting and refining of copper,33141pt.
+N33141N,Primary smelting and refining of nonferrous metal (except copper and aluminum),33141pt.
+G3315,Foundries,3315
+N3321,Forging and stamping,3321
+N3322,Cutlery and handtool,3322
+N3323,Architectural and structural metals,3323
+G3325,Hardware,3325
+N3326,Spring and wire product,3326
+G3327,"Machine shops; turned product; and screw, nut, and bolt",3327
+N3328,"Coating, engraving, heat treating, and allied activities",3328
+G3329,Other fabricated metal product,3329
+G332991,Ball and roller bearing,332991
+G3331,"Agriculture, construction, and mining machinery",3331
+G33311,Agricultural implement,33311
+G333111,Farm machinery and equipment,333111
+G33312,Construction machinery,33312
+N33313,Mining and oil and gas field machinery,33313
+G3332,Industrial machinery,3332
+G3333A9,Commercial and service industry machinery and other general purpose machinery,"3333,9"
+G3334T6,"HVAC, metalworking, and power transmission machinery",3334-6
+G3334,"Ventilation, heating, air-conditioning, and commercial refrigeration equipment",3334
+G3335,Metalworking machinery,3335
+G3336,"Engine, turbine, and power transmission equipment",3336
+G3343,Audio and video equipment,3343
+G3345,"Navigational, measuring, electromedical, and control instruments",3345
+G3352,Household appliance,3352
+G33521,Small electrical appliance,33521
+G33522,Major appliance,33522
+G335@2,Electrical equipment except appliances,"3351,3,9"
+G3351,Electric lighting equipment,3351
+G3353,Electrical equipment,3353
+G3359,Other electrical equipment and component,3359
+G33591,Battery,33591
+N33592,Communication and energy wire and cable,33592
+G33593T9,Other electrical equipment,33593-9
+G336,Transportation equipment,336
+G33611,Automobile and light duty motor vehicle,33611
+G33611A,Automobile,336110pt.
+G33611T,Light truck and utility vehicle,336110pt.
+G33612,Heavy duty truck,33612
+G3362,Motor vehicle body and trailer,3362
+G336212,Truck trailer,336212
+N336213,Motor home,336213
+G336214,Travel trailer and camper,336214
+G3364,Aerospace product and parts,3364
+G336411T3,Aircraft and parts,336411-3
+G3365T9,"Railroad eq., ships and boats, and other transportation equipment",3365-9
+N3365,Railroad rolling stock,3365
+G3366,Ship and boat building,3366
+N3369,Other transportation equipment,3369
+N3371,Household and institutional furniture and kitchen cabinet,3371
+G3372A9,Office and other furniture,"3372,9"
+N3391,Medical equipment and supplies,3391
+N1133,Logging,1133
+G5131P,"Newspaper, periodical, book, and directory publishers",5131pt.
+G51311P,Newspaper publishers,51311pt.
+G51312T9P,"Periodical, book, and other publishers",51312-9pt.
+G33611B,"Automobile, business",336110pt.
+G33611U,"Light trucks, business",336110pt.
