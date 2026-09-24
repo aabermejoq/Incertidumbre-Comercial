@@ -1,7 +1,7 @@
 """Descarga del Census (International Trade API) las importaciones de EE.UU.
 desde México por NAICS a 4 dígitos y calcula la tasa arancelaria efectiva mensual.
 
-Requiere la variable de entorno CENSUS_API_KEY.
+Requiere la variable de entorno CENSUS_API.
 
 Salidas:
   data/aranceles_mex_naics4.csv        formato largo: fecha, naics, valores y tasas
@@ -19,9 +19,9 @@ MEXICO = "2010"
 INICIO = 2013
 OUT = Path(__file__).resolve().parent.parent / "data"
 
-key = os.environ.get("CENSUS_API_KEY")
+key = os.environ.get("CENSUS_API")
 if not key:
-    raise SystemExit("Falta la variable de entorno CENSUS_API_KEY")
+    raise SystemExit("Falta la variable de entorno CENSUS_API")
 
 
 def anio(a):
