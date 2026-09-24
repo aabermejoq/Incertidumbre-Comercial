@@ -1,6 +1,18 @@
 # Notas metodológicas iniciales
 
-Este documento reúne observaciones de la inspección inicial de las fuentes (etapa 1: organización e inventario). Aquí solo se anotan hechos comprobados en los archivos y preguntas abiertas. Todavía no se ha tomado **ninguna** decisión de limpieza, homologación ni modelación. Los identificadores (`MX_PROD_01`, `INC_02`, etc.) corresponden a [`inventario_fuentes.csv`](inventario_fuentes.csv).
+Este documento reúne observaciones de la inspección inicial de las fuentes (etapa 1: organización e inventario). Aquí se anotan hechos comprobados en los archivos, las decisiones que ya se acordaron (sección 0) y las preguntas abiertas. Todavía no se ha aplicado ninguna transformación a los datos. Los identificadores (`MX_PROD_01`, `INC_02`, etc.) corresponden a [`inventario_fuentes.csv`](inventario_fuentes.csv).
+
+## 0. Decisiones acordadas
+
+Registradas el 2026-09-24, con base en las respuestas del responsable del proyecto.
+
+1. **Exportaciones:** `MX_EXP_01` proviene del cubo de información de comercio exterior (Comext) del Banco de México; `Tipo de operación = 2` corresponde a exportaciones.
+2. **Variable de producción:** se usará el **valor real** de la producción de la EMIM, es decir, el valor de producción deflactado con el INPP (`PRECIOS_01`). Como el INPP solo llega a subsector (3 dígitos), cada rama se deflacta con el índice de su subsector. La asignación está en [`correspondencia_rama_inpp.csv`](correspondencia_rama_inpp.csv): 86 ramas, 21 subsectores, todas con correspondencia exacta a 3 dígitos.
+3. **Cobertura sectorial:** solo industrias manufactureras (SCIAN 31-33). Los códigos no manufactureros del Census (11xx, 21xx y 9xxx) quedan fuera.
+4. **Medidas de incertidumbre:** se usarán las tres: TPU (`INC_01`), WTUI (`INC_02`, hoja T6) y EPU México (`INC_03`).
+5. **Datos confidenciales (`ND`) y faltantes:** se tratarán como valores faltantes. El análisis final usará solo información completa.
+6. **Periodo:** la información completa empieza en 2019-01 (límite de las exportaciones). Los ceros de 1991 del tipo de cambio quedan fuera de ese periodo y no requieren tratamiento.
+7. **Anomalías arancelarias** en las ramas 1119 y 3119: no requieren tratamiento especial (la 1119 queda fuera por no ser manufacturera).
 
 ## 1. Cobertura temporal y frecuencia
 
@@ -14,8 +26,9 @@ Este documento reúne observaciones de la inspección inicial de las fuentes (et
 | INC_02 – WUI / WTUI / WPUI (Ahir, Bloom y Furceri) | Mensual | 2008-01 | 2026-08 |
 | INC_03 – EPU México (Baker, Bloom y Davis) | Mensual | 1996-01 | 2026-08 |
 | MACRO_01 – Tipo de cambio FIX (Banxico) | Mensual | 1991-11 | 2026-08 |
+| PRECIOS_01 – INPP por origen (INEGI) | Mensual | 1981-01 o 2010-06 (subsectores manufactureros) | 2026-08 |
 
-- El periodo común a **todas** las fuentes está limitado por las exportaciones, que empiezan en 2019-01, y termina en 2026-07. Si solo se usan producción y aranceles, el periodo común empieza en 2018-01. Qué periodo usar se decidirá más adelante.
+- El periodo común a **todas** las fuentes va de 2019-01 (inicio de las exportaciones) a 2026-07. Este es el periodo con información completa (decisión 6).
 - Casi todas las fuentes son mensuales. El TPU trae además versiones trimestral y diaria, y `TARIFFVOL` (volatilidad arancelaria) solo llega a 2018Q4.
 - La EMIM tiene cifras preliminares desde agosto de 2025 y revisadas de enero a julio de 2025. Los últimos meses de exportaciones y aranceles también podrían revisarse.
 
@@ -30,7 +43,7 @@ Este documento reúne observaciones de la inspección inicial de las fuentes (et
 
 ## 3. Conceptos que parecen similares pero no son iguales
 
-- **Producción mexicana:** la EMIM trae **valor** de producción y de ventas en miles de pesos corrientes, más personal ocupado y horas trabajadas. No es un índice de volumen físico ni viene desestacionalizada. Si se necesita producción real habrá que decidir cómo deflactar u obtener otra serie (por ejemplo, el índice de volumen físico de la actividad industrial de INEGI), que no está en el repositorio.
+- **Producción mexicana:** la EMIM trae **valor** de producción y de ventas en miles de pesos corrientes, más personal ocupado y horas trabajadas. No es un índice de volumen físico ni viene desestacionalizada. Se deflactará con el INPP por subsector (decisión 2).
 - **Exportaciones mexicanas frente a importaciones de EE.UU. desde México:** `MX_EXP_01` son exportaciones totales de México (el archivo no dice el destino). `MX_ARAN_01` son importaciones de EE.UU. con origen México, en dólares. Miden flujos relacionados pero no idénticos (destinos, registro, valoración, fechas de registro).
 - **Tasa arancelaria efectiva:** es aranceles calculados / valor importado. Las cuotas compensatorias podrían no estar incluidas en los aranceles calculados (por confirmar). En las ramas 1119 y 3119 los aranceles llegan a superar el valor gravable, lo que es compatible con aranceles específicos (por kilo) como los del azúcar. Hay un pico aislado de 49% en 1119 en diciembre de 2024.
 - **Tres medidas de incertidumbre con alcances distintos:**
@@ -38,7 +51,7 @@ Este documento reúne observaciones de la inspección inicial de las fuentes (et
   - WTUI (`INC_02`, hoja T6): incertidumbre **comercial** por **país** (incluye MEX y USA), basada en reportes de la EIU. El mismo archivo trae la WUI (general) y la WPUI (política).
   - EPU México (`INC_03`): incertidumbre de **política económica** en general (no solo comercial) para México.
 
-  Sus escalas y metodologías difieren. No se ha comprobado cuál o cuáles se usarán.
+  Sus escalas y metodologías difieren. Se usarán las tres (decisión 4).
 
 ## 4. Unidades y monedas
 
@@ -57,6 +70,10 @@ Este documento reúne observaciones de la inspección inicial de las fuentes (et
 - **TPU:** la hoja ReadMe dice que la cobertura es 1985–2020, pero los datos van de 1960 a 2026.
 - **WUI:** muchas celdas en 0 en las series por país.
 
+- **INPP:** el título de las series dice «Base Julio 2025=100», pero las 43 series valen exactamente 100 en **julio de 2019** y entre 108 y 176 en julio de 2025. La base efectiva es julio de 2019=100. Esto no afecta la deflactación (solo cambia el nivel), pero conviene confirmarlo y citar la base correcta.
+- **INPP, cobertura conceptual:** el archivo contiene el INPP de *mercancías y servicios finales* por origen, que excluye bienes intermedios. El valor de producción de la EMIM incluye bienes que otras industrias usan como insumos, así que la cobertura de precios no coincide exactamente.
+- **INPP, ramas que comparten deflactor:** en 312 (bebidas y tabaco), 336 (vehículos, carrocerías, autopartes y otro equipo de transporte) y 311 (nueve ramas alimentarias), ramas con precios muy distintos comparten índice. Las diferencias de precios dentro de cada subsector quedarán en la producción real.
+
 ## 6. Fuentes de EE.UU. y posibles usos (sin decidir)
 
 - La producción industrial de EE.UU. (`US_PROD_01`) podría servir como control de demanda externa o como fuente complementaria por rama. Primero hay que construir la correspondencia NAICS–SCIAN.
@@ -64,11 +81,8 @@ Este documento reúne observaciones de la inspección inicial de las fuentes (et
 
 ## 7. Preguntas pendientes
 
-1. ¿Cuál es la fuente exacta del archivo de exportaciones (sistema de consulta, destino de las exportaciones y significado del código `Tipo de operación = 2`)?
-2. ¿De dónde vienen y cómo se construyeron las series de la hoja `Autopartes` (`xparts`, `inpp336`, `xparts_r_ae`)?
-3. ¿La variable de producción será el valor de producción de la EMIM (nominal) o un índice de volumen de otra fuente todavía no incluida?
-4. ¿Se usarán solo las ramas manufactureras (31-33) o también otras actividades industriales (minería, electricidad, construcción)? Las fuentes actuales de producción mexicana solo cubren manufacturas.
-5. ¿Cuáles son las «tres medidas de incertidumbre comercial» del proyecto: TPU, WTUI y EPU México? La EPU no es específicamente comercial.
-6. ¿Cómo tratar las ramas con datos confidenciales (`ND`) y las clases de exportación que no están en la EMIM?
-7. ¿Qué deflactores y qué método de ajuste estacional se usarán, en su caso?
-8. ¿Se incorporarán otros controles macroeconómicos (actividad, tasas de interés, precios) que hoy no están en el repositorio?
+1. ¿De dónde vienen y cómo se construyeron las series de la hoja `Autopartes` (`xparts`, `inpp336`, `xparts_r_ae`)?
+2. ¿Hay que confirmar con INEGI la base del INPP (julio de 2019 frente a julio de 2025)? ¿Vale la pena conseguir el INPP de *producción total* (que incluye bienes intermedios) como deflactor alternativo?
+3. ¿Qué método de ajuste estacional se usará, si se usa alguno?
+4. ¿Qué controles macroeconómicos adicionales se incorporarán? Hoy solo está el tipo de cambio nominal.
+5. ¿Cómo se tratarán las clases de exportación que no están en la EMIM al agregar a nivel rama? Las 86 ramas coinciden, así que agregar por rama las incluye.

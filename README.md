@@ -35,7 +35,7 @@ La tabla resume las fuentes que hay en el repositorio. El detalle de cada archiv
 
 | ID | Archivo | Contenido | Fuente | Periodo | Frecuencia | Desagregación |
 |---|---|---|---|---|---|---|
-| MX_EXP_01 | `data/raw/exportaciones/exportaciones_mex_scian_mensual.xlsx` | Valor de las exportaciones mexicanas en pesos y dólares; incluye una tabla dinámica y una hoja de trabajo sobre autopartes | Por revisar (probablemente INEGI) | 2019-01 a 2026-07 | Mensual | 279 clases SCIAN (6 dígitos) en 86 ramas |
+| MX_EXP_01 | `data/raw/exportaciones/exportaciones_mex_scian_mensual.xlsx` | Valor de las exportaciones mexicanas en pesos y dólares; incluye una tabla dinámica y una hoja de trabajo sobre autopartes | Banco de México, cubo de comercio exterior (Comext) | 2019-01 a 2026-07 | Mensual | 279 clases SCIAN (6 dígitos) en 86 ramas |
 
 ### Aranceles
 
@@ -43,6 +43,12 @@ La tabla resume las fuentes que hay en el repositorio. El detalle de cada archiv
 |---|---|---|---|---|---|---|
 | MX_ARAN_01 | `data/raw/aranceles/aranceles_mex_naics4.csv` | Importaciones de EE.UU. desde México: valor importado, valor gravable, aranceles calculados y tasas | U.S. Census Bureau, International Trade API | 2013-01 a 2026-07 | Mensual | 108 ramas NAICS de 4 dígitos |
 | MX_ARAN_02 | `data/interim/aranceles/tasa_efectiva_mex_naics4.csv` | Matriz fecha × rama de la tasa arancelaria efectiva (derivada de MX_ARAN_01) | Derivado del Census | 2013-01 a 2026-07 | Mensual | 108 ramas NAICS de 4 dígitos |
+
+### Precios (deflactores)
+
+| ID | Archivo | Contenido | Fuente | Periodo | Frecuencia | Desagregación |
+|---|---|---|---|---|---|---|
+| PRECIOS_01 | `data/raw/precios/inegi_inpp_origen_scian_mensual.xlsx` | Índice Nacional de Precios Productor, mercancías y servicios finales por origen (base efectiva julio de 2019=100) | INEGI | 1981-01 a 2026-08 (subsectores: desde 1981-01 o 2010-06) | Mensual | Sectores SCIAN y 21 subsectores manufactureros |
 
 ### Incertidumbre
 
@@ -81,6 +87,7 @@ Ver las [notas metodológicas](docs/notas_metodologicas.md).
 │   │   ├── aranceles/                    Importaciones y aranceles de EE.UU. desde México (Census)
 │   │   ├── produccion_estados_unidos/    Producción industrial de EE.UU. (G.17) y su catálogo
 │   │   ├── incertidumbre/                TPU, WUI/WTUI/WPUI y EPU México
+│   │   ├── precios/                      INPP por origen (deflactores)
 │   │   └── controles_macroeconomicos/    Tipo de cambio FIX
 │   ├── interim/                          Datos derivados o transformados
 │   │   └── aranceles/                    Tasa efectiva en formato ancho
@@ -90,6 +97,7 @@ Ver las [notas metodológicas](docs/notas_metodologicas.md).
 │   └── R/                                (reservado) scripts y R Markdown de etapas posteriores
 ├── docs/
 │   ├── inventario_fuentes.csv            Inventario completo de archivos
+│   ├── correspondencia_rama_inpp.csv     Deflactor INPP asignado a cada rama EMIM
 │   └── notas_metodologicas.md            Observaciones de la inspección y preguntas abiertas
 └── outputs/                              (reservado) resultados del análisis
     ├── tables/
@@ -104,13 +112,22 @@ Ver las [notas metodológicas](docs/notas_metodologicas.md).
   - `aranceles_mex_naics4.py`: descarga del Census; requiere la variable de entorno `CENSUS_API`.
   - `ip_naics.py`: descarga del G.17.
 
+## Decisiones acordadas
+
+Se usará el **valor real de la producción manufacturera** (SCIAN 31-33) de la EMIM por rama. Para obtenerlo, el valor nominal se deflactará con el INPP del subsector al que pertenece cada rama; la asignación está en [`docs/correspondencia_rama_inpp.csv`](docs/correspondencia_rama_inpp.csv).
+
+Las tres medidas de incertidumbre son TPU, WTUI y EPU México. Los valores confidenciales se tratarán como faltantes y el análisis usará información completa, que empieza en 2019-01.
+
+El detalle está en la sección 0 de las [notas metodológicas](docs/notas_metodologicas.md).
+
 ## Estado actual del proyecto
 
 | Actividad | Estado |
 |---|---|
 | Organización de los archivos | Completada |
-| Inventario de fuentes | Completado (12 archivos: 10 de datos y 2 scripts) |
-| Inspección de metadatos | Completada para los 10 archivos de datos: todas las hojas, dimensiones, encabezados, cobertura y códigos de clasificación. No se revisaron todas las celdas. |
+| Inventario de fuentes | Completado (13 archivos: 11 de datos y 2 scripts) |
+| Inspección de metadatos | Completada para los 11 archivos de datos: todas las hojas, dimensiones, encabezados, cobertura y códigos de clasificación. No se revisaron todas las celdas. |
+| Correspondencia rama–deflactor | Completada (86 ramas → 21 subsectores INPP) |
 | Limpieza de datos | Pendiente |
 | Integración de fuentes | Pendiente |
 | Estimación econométrica | Pendiente |
@@ -130,7 +147,7 @@ Después se buscará construir una base de datos para analizar la producción in
 - **Datos originales:** en `data/raw/<categoría>/`. No se modifican; cualquier transformación debe guardarse en `data/interim/` o `data/processed/`.
 - **Documentación:** el inventario (`docs/inventario_fuentes.csv`) relaciona el identificador de cada fuente (`id_fuente`) con su nombre original, su ruta anterior y su ruta actual (`nombre_organizado`). También guarda la huella SHA-256 de cada archivo para verificar que no se haya modificado.
 - **Nombres de archivo:** minúsculas, sin espacios ni acentos, con palabras separadas por guiones bajos, siguiendo el patrón `<institución o autor>_<contenido>_<frecuencia o versión>`. Los CSV generados por scripts conservan el nombre que les asignan sus scripts.
-- **Identificadores de fuente:** `MX_PROD`, `MX_EXP`, `MX_ARAN`, `US_PROD`, `INC`, `MACRO` y `COD`, seguidos de un número consecutivo.
+- **Identificadores de fuente:** `MX_PROD`, `MX_EXP`, `MX_ARAN`, `US_PROD`, `INC`, `MACRO`, `PRECIOS` y `COD`, seguidos de un número consecutivo.
 - **Rutas:** todo el código debe usar rutas relativas a la raíz del repositorio (por ejemplo, `data/raw/incertidumbre/...`). Los scripts de Python calculan esa raíz a partir de su propia ubicación. En R se recomienda `here::here()` o un proyecto de RStudio (`.Rproj`) en la raíz.
 
 ### Archivos renombrados
@@ -143,6 +160,7 @@ Después se buscará construir una base de datos para analizar la producción in
 | `WUI_M_dataset_2026_08.xlsx` | `data/raw/incertidumbre/wui_ahir_bloom_furceri_2026_08.xlsx` |
 | `Mexico_Policy_Uncertainty_Data (2).xlsx` | `data/raw/incertidumbre/epu_mexico_baker_bloom_davis.xlsx` |
 | `TC.xlsx` | `data/raw/controles_macroeconomicos/banxico_tipo_cambio_fix_mensual.xlsx` |
+| `INPP.xlsx` | `data/raw/precios/inegi_inpp_origen_scian_mensual.xlsx` |
 
 Los CSV que estaban en `data/` y los scripts que estaban en `scripts/` se movieron sin cambiarles el nombre (ver el inventario).
 
