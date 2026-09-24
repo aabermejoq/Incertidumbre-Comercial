@@ -30,7 +30,7 @@ options(dplyr.summarise.inform = FALSE, width = 120, scipen = 6)
 
 1. Abra el repositorio en RStudio (idealmente como proyecto, o con el directorio de trabajo en cualquier carpeta del repositorio). Las rutas se resuelven con `here::here()` a partir de la raíz del repositorio; no hay rutas absolutas.
 2. Instale los paquetes que falten (la sección 1 le dice exactamente cuáles, si falta alguno). El documento **no** instala paquetes por su cuenta.
-3. Revise el bloque **`decisiones`** de la sección 1.3. Ahí están, a la vista, todas las decisiones de integración que no se pueden resolver solo con los archivos. Los valores por defecto son los más conservadores que permiten construir la base; cada uno queda marcado como `REVISAR` en el reporte.
+3. Revise el bloque **`decisiones`** de la sección 1.3. Ahí están, a la vista, todas las decisiones de integración que no se pueden resolver solo con los archivos. Los valores actuales son los acordados el 2026-09-24; si cambia alguno, el reporte lo marca como `REVISAR`.
 4. Pulse **Knit**. El HTML se guarda en `outputs/reports/`. También puede ejecutar los bloques uno por uno (*Run All* o `Ctrl+Alt+R`) y revisar cada checkpoint en la consola.
 
 **Cómo leer los checkpoints.** Cada sección termina con una tabla de comprobaciones con tres estados posibles:
@@ -382,38 +382,43 @@ inspeccionar <- function(df, nombre, n_filas = 5, n_cols = 8, max_cols_perfil = 
 
 ## Decisiones de integración que requieren su revisión
 
-Este bloque reúne **todas** las decisiones que no pueden resolverse solo con los archivos. Los valores por defecto son conservadores: integran únicamente información con una correspondencia exacta de códigos (sin promedios, sin agregaciones inventadas) y dejan fuera lo que requiere una regla que aún no se ha acordado (por ejemplo, convertir el VIX diario a mensual). Cambie los valores aquí y vuelva a ejecutar; no hace falta tocar nada más.
+Este bloque reúne **todas** las decisiones que no pueden resolverse solo con los archivos. Los valores actuales son los **acordados con el responsable del proyecto el 2026-09-24**. Si cambia alguno, el reporte lo marcará como `REVISAR` (difiere de lo acordado). Cambie los valores aquí y vuelva a ejecutar; no hace falta tocar nada más.
 
 ```{r decisiones}
 decisiones <- list(
-  # D1. Fuentes cuyas combinaciones (mes, rama) definen las filas del panel. Son las fuentes que
-  #     observan directamente cada rama mexicana. Las demás variables se pegan sobre esas filas.
-  universo_llaves = c("MX_PROD_01", "MX_EXP_01", "MX_ARAN_01"),
+  # Decisiones acordadas con el responsable del proyecto el 2026-09-24.
+  # D1. Fuentes cuyas combinaciones (mes, rama) definen las filas del panel. El panel empieza en
+  #     2018-01 (EMIM). Los aranceles se pegan sobre esas filas; sus meses 2013-2017 quedan
+  #     documentados como fuera del panel.
+  universo_llaves = c("MX_PROD_01", "MX_EXP_01"),
 
   # D2. Aranceles e importaciones de EE.UU. desde México (Census, NAICS 4): integrarlos a la rama
-  #     SCIAN con el MISMO código de 4 dígitos (sin agregaciones ni promedios).
+  #     SCIAN con el MISMO código de 4 dígitos (sin agregaciones ni promedios), SOLO en las ramas
+  #     cuya correspondencia NAICS = SCIAN se verifica con los clasificadores oficiales (checkpoint 4).
   aranceles_por_codigo_identico = TRUE,
 
   # D3. Producción industrial de EE.UU. (G.17). El archivo NO contiene una serie nacional total,
-  #     solo series por industria. Opciones independientes:
+  #     solo series por industria (el control agregado de EE.UU. se incorporará aparte).
+  #     Solo se asignan series a ramas/subsectores con correspondencia verificada. Opciones:
   #     - subsector: asigna a cada rama la serie G.17 del subsector NAICS de 3 dígitos idéntico.
   #     - rama: asigna la serie G.17 con código NAICS de 4 dígitos idéntico (solo donde existe).
   ip_eeuu_subsector_codigo_identico = TRUE,
   ip_eeuu_rama_codigo_identico      = TRUE,
 
-  # D4. Calcular el valor real de la producción (decisión 2 de docs/notas_metodologicas.md):
-  #     valor nominal EMIM / (INPP del subsector / 100).
-  calcular_valor_produccion_real = TRUE,
+  # D4. Expresar todas las variables monetarias también en MILES DE PESOS REALES (jul-2019):
+  #     miles de pesos nominales / (INPP del subsector / 100). Los pesos se dividen entre 1,000 y
+  #     los dólares se convierten con el FIX del mes antes de deflactar. Se conservan los originales.
+  valores_en_miles_de_pesos_reales = TRUE,
 
   # D5. Tipo de cambio FIX: los ceros de ene-oct 1991 son "sin dato" (notas metodológicas, sección 5).
   tc_ceros_como_faltantes = TRUE,
 
-  # D6. VIX diario -> mensual. No hay regla acordada (pregunta 4 de las notas metodológicas).
-  #     NA = no se integra. Opciones: "promedio_mensual" o "ultimo_dato_del_mes".
-  vix_regla_mensual = NA_character_,
+  # D6. VIX diario -> mensual. Opciones: "promedio_mensual", "ultimo_dato_del_mes" o NA (no se integra).
+  vix_regla_mensual = "promedio_mensual",
 
   # D7. World Uncertainty Index: países cuyas series (WUI, WTUI, WPUI) se integran como variables
   #     comunes, y si se incluye el promedio mundial ponderado por PIB (hojas F1-F3).
+  #     Acordado: usar las tres WTUI (MEX, USA y mundo).
   wui_paises = c("MEX", "USA"),
   wui_incluir_promedio_mundial = TRUE,
 
@@ -434,7 +439,7 @@ exigir(is.na(decisiones$vix_regla_mensual) ||
        "decisiones$vix_regla_mensual debe ser NA, 'promedio_mensual' o 'ultimo_dato_del_mes'. ",
        "¿Con qué regla quiere convertir el VIX diario a mensual?")
 for (nm in c("aranceles_por_codigo_identico", "ip_eeuu_subsector_codigo_identico",
-             "ip_eeuu_rama_codigo_identico", "calcular_valor_produccion_real",
+             "ip_eeuu_rama_codigo_identico", "valores_en_miles_de_pesos_reales",
              "tc_ceros_como_faltantes", "wui_incluir_promedio_mundial",
              "emim_excluir_meses_no_publicados")) {
   exigir(isTRUE(decisiones[[nm]]) || isFALSE(decisiones[[nm]]),
@@ -443,31 +448,34 @@ for (nm in c("aranceles_por_codigo_identico", "ip_eeuu_subsector_codigo_identico
 
 si_no <- function(x) if (isTRUE(x)) "Sí" else "No"
 tabla_decisiones <- tribble(
-  ~id, ~decision, ~valor_actual, ~por_que_requiere_revision,
-  "D1", "Fuentes que definen las filas mes-rama del panel", paste(decisiones$universo_llaves, collapse = ", "),
-  "Define el periodo del panel: con el Census, las ramas empiezan en 2013-01; sin él, en 2018-01 (EMIM).",
-  "D2", "Aranceles del Census por identidad de código NAICS 4 = SCIAN 4", si_no(decisiones$aranceles_por_codigo_identico),
-  "NAICS (EE.UU.) y SCIAN (México) coinciden en código, pero no se ha verificado que coincidan en definición rama por rama; el Census clasifica productos, no establecimientos.",
-  "D3a", "Producción EE.UU. (G.17) del subsector NAICS 3 idéntico", si_no(decisiones$ip_eeuu_subsector_codigo_identico),
-  "El G.17 no trae serie nacional total. La serie del subsector se repite entre las ramas del mismo subsector.",
-  "D3b", "Producción EE.UU. (G.17) de la rama NAICS 4 idéntica", si_no(decisiones$ip_eeuu_rama_codigo_identico),
+  ~id, ~decision, ~valor_actual, ~valor_acordado, ~nota,
+  "D1", "Fuentes que definen las filas mes-rama del panel", paste(decisiones$universo_llaves, collapse = ", "), "MX_PROD_01, MX_EXP_01",
+  "Panel desde 2018-01 (inicio de la EMIM). Los datos del Census de 2013-2017 quedan fuera del panel y se documentan en la hoja 'cobertura'.",
+  "D2", "Aranceles del Census por código NAICS 4 = SCIAN 4", si_no(decisiones$aranceles_por_codigo_identico), "Sí",
+  "Solo en ramas con correspondencia verificada con los clasificadores oficiales de INEGI y del Census (checkpoint 4).",
+  "D3a", "Producción EE.UU. (G.17) del subsector NAICS 3 idéntico", si_no(decisiones$ip_eeuu_subsector_codigo_identico), "Sí",
+  "El G.17 no trae total nacional; el control agregado de EE.UU. se incorporará aparte.",
+  "D3b", "Producción EE.UU. (G.17) de la rama NAICS 4 idéntica", si_no(decisiones$ip_eeuu_rama_codigo_identico), "Sí",
   "Solo existe para parte de las ramas; en el resto queda NA. No se agregan series para completar.",
-  "D4", "Calcular valor real de producción (deflactado con INPP del subsector)", si_no(decisiones$calcular_valor_produccion_real),
-  "Decisión acordada en las notas metodológicas; el INPP es de mercancías finales y su base efectiva es jul-2019=100.",
-  "D5", "Ceros del tipo de cambio FIX como faltantes", si_no(decisiones$tc_ceros_como_faltantes),
+  "D4", "Variables monetarias en miles de pesos reales (jul-2019)", si_no(decisiones$valores_en_miles_de_pesos_reales), "Sí",
+  "Deflactor: INPP del subsector de la rama. Dólares a pesos con el FIX promedio del mes. Se conservan las variables nominales originales.",
+  "D5", "Ceros del tipo de cambio FIX como faltantes", si_no(decisiones$tc_ceros_como_faltantes), "Sí",
   "Los ceros de ene-oct 1991 no son valores reales. Quedan fuera del panel en cualquier caso.",
-  "D6", "Regla para convertir el VIX diario a mensual", ifelse(is.na(decisiones$vix_regla_mensual), "NA (no se integra)", decisiones$vix_regla_mensual),
-  "No hay una regla acordada. Sin regla, el VIX se limpia y documenta pero no entra a la base.",
-  "D7", "Países de la WUI/WTUI/WPUI y promedio mundial", paste0(paste(decisiones$wui_paises, collapse = ", "), "; promedio mundial: ", si_no(decisiones$wui_incluir_promedio_mundial)),
-  "Las notas acuerdan usar la WTUI (hoja T6), pero no dicen de qué país. Se integran MEX y USA para no elegir por usted.",
-  "D8", "Excluir meses EMIM no publicados ('-')", si_no(decisiones$emim_excluir_meses_no_publicados),
+  "D6", "Regla para convertir el VIX diario a mensual", ifelse(is.na(decisiones$vix_regla_mensual), "NA (no se integra)", decisiones$vix_regla_mensual), "promedio_mensual",
+  "Promedio de los días hábiles con dato en el mes.",
+  "D7", "Países de la WUI/WTUI/WPUI y promedio mundial", paste0(paste(decisiones$wui_paises, collapse = ", "), "; promedio mundial: ", si_no(decisiones$wui_incluir_promedio_mundial)), "MEX, USA; promedio mundial: Sí",
+  "Se usan las tres WTUI (wtui_mex, wtui_usa, wtui_mundo_pib). También quedan WUI y WPUI de los mismos países.",
+  "D8", "Excluir meses EMIM no publicados ('-')", si_no(decisiones$emim_excluir_meses_no_publicados), "Sí",
   "Son celdas sin información (ago-dic 2026); conservarlas crearía filas vacías."
 )
 for (i in seq_len(nrow(tabla_decisiones))) {
-  revisar("D", paste("Decisión", tabla_decisiones$id[i]), tabla_decisiones$decision[i],
-          paste0("Valor: ", tabla_decisiones$valor_actual[i], ". ", tabla_decisiones$por_que_requiere_revision[i]))
+  d <- tabla_decisiones[i, ]
+  registrar("D", paste("Decisión", d$id), d$decision, d$valor_actual == d$valor_acordado,
+            if (d$valor_actual == d$valor_acordado) paste0("Acordada (2026-09-24): ", d$valor_actual, ". ", d$nota)
+            else paste0("El valor actual (", d$valor_actual, ") difiere del acordado (", d$valor_acordado, "). ", d$nota),
+            si_falla = "REVISAR")
 }
-tabla(tabla_decisiones, "Decisiones vigentes en esta ejecución", ancho_texto = 300)
+tabla(tabla_decisiones, "Decisiones vigentes en esta ejecución (se marca REVISAR si difieren de lo acordado)", ancho_texto = 300)
 ```
 
 ## Archivos de entrada y salida
@@ -489,6 +497,11 @@ fuentes <- tribble(
   "MACRO_01",   "data/raw/controles_macroeconomicos/banxico_tipo_cambio_fix_mensual.xlsx", "Tipo de cambio FIX, promedio mensual (Banxico)",
   "MACRO_02",   "data/raw/controles_macroeconomicos/fred_vix_diario.csv",                "VIX diario (CBOE vía FRED)",
   "PRECIOS_01", "data/raw/precios/inegi_inpp_origen_scian_mensual.xlsx",                 "INPP por origen SCIAN (INEGI)",
+  "CLAS_01",    "data/raw/clasificadores/inegi_scian_2018_categorias.xlsx",              "Catálogo SCIAN 2018 (INEGI); marca T = categoría trilateral",
+  "CLAS_02",    "data/raw/clasificadores/census_naics_2017_codigos.xlsx",                "Códigos NAICS 2017 (Census)",
+  "CLAS_03",    "data/raw/clasificadores/census_naics_2022_codigos.xlsx",                "Códigos NAICS 2022 (Census)",
+  "CLAS_04",    "data/raw/clasificadores/census_concordancia_naics_2022_2017.xlsx",      "Concordancia NAICS 2022 -> 2017 (Census)",
+  "CLAS_05",    "data/raw/clasificadores/census_concordancia_naics_2017_2012.xlsx",      "Concordancia NAICS 2017 -> 2012 (Census)",
   "DOC_CORR",   "docs/correspondencia_rama_inpp.csv",                                    "Correspondencia rama EMIM -> serie INPP del subsector",
   "DOC_INV",    "docs/inventario_fuentes.csv",                                           "Inventario de fuentes (huellas SHA-256)"
 ) %>% mutate(indispensable = TRUE)
@@ -762,7 +775,7 @@ inspeccionar(crudos$tc, "Tipo de cambio FIX", n_filas = 20, n_cols = 2)
 
 ### MACRO_02 · VIX (CBOE vía FRED)
 
-Cada fila es un **día hábil**; los feriados vienen vacíos. Frecuencia **diaria**: no se convierte a mensual sin una regla (decisión D6).
+Cada fila es un **día hábil**; los feriados vienen vacíos. Frecuencia **diaria**: se convierte a mensual con la regla de la decisión D6 (acordado: promedio mensual).
 
 ```{r cp2-vix}
 inspeccionar(crudos$vix, "VIX diario", n_cols = 2)
@@ -1316,8 +1329,11 @@ if (is.na(decisiones$vix_regla_mensual)) {
     summarise(valor = if (decisiones$vix_regla_mensual == "promedio_mensual") mean(vix) else last(vix),
               vix_dias_con_dato = n(), .groups = "drop") %>%
     rename(!!paste0("vix_", decisiones$vix_regla_mensual) := valor)
-  revisar("CP3", "MACRO_02", "VIX convertido a mensual", paste("Regla aplicada:", decisiones$vix_regla_mensual,
-                                                              "(decisión D6), con los días que tienen dato."))
+  registrar("CP3", "MACRO_02", "VIX mensual: un valor por mes, calculado solo con días con dato",
+            !anyDuplicated(vix_mensual$mes) && all(vix_mensual$vix_dias_con_dato > 0),
+            paste0("Regla: ", decisiones$vix_regla_mensual, " (D6); ", nrow(vix_mensual), " meses, ",
+                   rango_txt(vix_mensual$mes), "; días con dato por mes: ", min(vix_mensual$vix_dias_con_dato),
+                   " a ", max(vix_mensual$vix_dias_con_dato), "."))
   ultimo <- max(vix$fecha)
   if (ultimo < ceiling_date(ultimo, "month") - 1) {
     revisar("CP3", "MACRO_02", "Último mes del VIX incompleto",
@@ -1492,6 +1508,90 @@ hom_frec <- tribble(
 )
 tabla(hom_frec, "Frecuencias", ancho_texto = 120)
 
+# ---- Verificación oficial de la correspondencia SCIAN 2018 = NAICS --------------------------
+# Criterios (todos deben cumplirse para usar el código idéntico):
+#  (a) la rama (o subsector) SCIAN 2018 es una categoría trilateral: su título termina con "T";
+#  (b) el mismo código existe en NAICS 2017 y en NAICS 2022;
+#  (c) ninguna clase de 6 dígitos cambió de rama (o de subsector) entre NAICS 2012, 2017 y 2022,
+#      que son las versiones que usan el Census (2013-2026) y el G.17.
+leer_scian <- function(hoja) {
+  x <- leer_texto(ruta("CLAS_01"), hoja)
+  f <- which(norm_txt(x$c1) == "codigo")
+  exigir(length(f) >= 1, "Catálogo SCIAN 2018, hoja ", hoja, ": no se encontró el encabezado 'Código'.")
+  x[(f[1] + 1):nrow(x), ] %>% filter(!is.na(c1)) %>%
+    transmute(codigo = str_remove(str_trim(c1), "\\.0+$"), titulo_original = str_trim(c2),
+              trilateral = str_detect(titulo_original, "T$"),
+              titulo = str_trim(str_remove(titulo_original, "T$")))
+}
+leer_naics <- function(id) {
+  x <- leer_texto(ruta(id), 1)
+  f <- which(str_detect(norm_txt(x$c2), "naics.*code"))
+  exigir(length(f) >= 1, id, ": no se encontró el encabezado de códigos NAICS en la columna B.")
+  x[(f[1] + 1):nrow(x), ] %>% filter(!is.na(c2)) %>%
+    transmute(codigo = str_remove(str_trim(c2), "\\.0+$"), titulo = str_trim(str_remove(str_trim(c3), "T$")))
+}
+leer_concordancia <- function(id) {
+  x <- leer_texto(ruta(id), 1)
+  f <- which(str_detect(norm_txt(x$c1), "naics code"))
+  exigir(length(f) >= 1, id, ": no se encontró el encabezado de la concordancia.")
+  x[(f[1] + 1):nrow(x), ] %>% filter(!is.na(c1), !is.na(c3)) %>%
+    transmute(codigo_nuevo = str_remove(str_trim(c1), "\\.0+$"), codigo_anterior = str_remove(str_trim(c3), "\\.0+$"))
+}
+scian_rama <- leer_scian("RAMA") %>% filter(str_detect(codigo, "^3[1-3]\\d{2}$"))
+scian_sub  <- leer_scian("SUBSECTOR") %>% filter(str_detect(codigo, "^3[1-3]\\d$"))
+naics17 <- leer_naics("CLAS_02"); naics22 <- leer_naics("CLAS_03")
+exigir(nrow(scian_rama) > 0 && nrow(naics17) > 0 && nrow(naics22) > 0,
+       "No se pudieron leer los clasificadores oficiales (data/raw/clasificadores/).")
+concordancias <- bind_rows(
+  leer_concordancia("CLAS_04") %>% mutate(transicion = "NAICS 2017 -> 2022"),
+  leer_concordancia("CLAS_05") %>% mutate(transicion = "NAICS 2012 -> 2017")) %>%
+  filter(str_detect(codigo_nuevo, "^\\d{6}$"), str_detect(codigo_anterior, "^\\d{6}$"),
+         str_detect(codigo_nuevo, "^3[1-3]") | str_detect(codigo_anterior, "^3[1-3]"))
+cambios_rama <- concordancias %>% filter(substr(codigo_nuevo, 1, 4) != substr(codigo_anterior, 1, 4))
+cambios_sub  <- concordancias %>% filter(substr(codigo_nuevo, 1, 3) != substr(codigo_anterior, 1, 3))
+registrar("CP4", "Clasificadores", "Se leyeron las concordancias NAICS 2012-2017-2022 (clases manufactureras)",
+          nrow(concordancias) > 0, sprintf("%d pares de clases manufactureras", nrow(concordancias)))
+ramas_con_cambio <- unique(c(substr(cambios_rama$codigo_nuevo, 1, 4), substr(cambios_rama$codigo_anterior, 1, 4)))
+subs_con_cambio  <- unique(c(substr(cambios_sub$codigo_nuevo, 1, 3), substr(cambios_sub$codigo_anterior, 1, 3)))
+
+verif_corr <- tibble(rama = sort(unique(emim_rama$rama))) %>%
+  mutate(subsector = substr(rama, 1, 3)) %>%
+  left_join(select(scian_rama, rama = codigo, scian_titulo = titulo, scian_trilateral = trilateral), by = "rama", relationship = "one-to-one") %>%
+  left_join(select(scian_sub, subsector = codigo, subsector_trilateral = trilateral), by = "subsector", relationship = "many-to-one") %>%
+  left_join(select(naics17, rama = codigo, naics2017_titulo = titulo), by = "rama", relationship = "one-to-one") %>%
+  left_join(select(naics22, rama = codigo, naics2022_titulo = titulo), by = "rama", relationship = "one-to-one") %>%
+  mutate(scian_trilateral = coalesce(scian_trilateral, FALSE),
+         subsector_trilateral = coalesce(subsector_trilateral, FALSE),
+         en_naics_2017 = !is.na(naics2017_titulo), en_naics_2022 = !is.na(naics2022_titulo),
+         rama_sin_cambios_2012_2022 = !rama %in% ramas_con_cambio,
+         subsector_en_naics_2017_2022 = subsector %in% naics17$codigo & subsector %in% naics22$codigo,
+         subsector_sin_cambios_2012_2022 = !subsector %in% subs_con_cambio,
+         correspondencia_rama_verificada = scian_trilateral & en_naics_2017 & en_naics_2022 & rama_sin_cambios_2012_2022,
+         correspondencia_subsector_verificada = subsector_trilateral & subsector_en_naics_2017_2022 & subsector_sin_cambios_2012_2022)
+ramas_verificadas <- verif_corr$rama[verif_corr$correspondencia_rama_verificada]
+subsectores_verificados <- unique(verif_corr$subsector[verif_corr$correspondencia_subsector_verificada])
+
+registrar("CP4", "Correspondencia NAICS-SCIAN", "Todas las ramas EMIM son categorías trilaterales (marca T) en el SCIAN 2018",
+          all(verif_corr$scian_trilateral), paste("No trilaterales:", paste(verif_corr$rama[!verif_corr$scian_trilateral], collapse = ", ")),
+          si_falla = "REVISAR")
+registrar("CP4", "Correspondencia NAICS-SCIAN", "Todas las ramas EMIM existen con el mismo código en NAICS 2017 y 2022",
+          all(verif_corr$en_naics_2017 & verif_corr$en_naics_2022),
+          paste("Faltan:", paste(verif_corr$rama[!(verif_corr$en_naics_2017 & verif_corr$en_naics_2022)], collapse = ", ")),
+          si_falla = "REVISAR")
+registrar("CP4", "Correspondencia NAICS-SCIAN", "Ninguna clase manufacturera cambió de rama entre NAICS 2012, 2017 y 2022",
+          nrow(cambios_rama) == 0, paste("Ramas afectadas:", paste(ramas_con_cambio, collapse = ", ")), si_falla = "REVISAR")
+registrar("CP4", "Correspondencia NAICS-SCIAN", "Los 21 subsectores son trilaterales, existen en NAICS 2017/2022 y no cambiaron",
+          all(verif_corr$correspondencia_subsector_verificada),
+          paste("No verificados:", paste(unique(verif_corr$subsector[!verif_corr$correspondencia_subsector_verificada]), collapse = ", ")),
+          si_falla = "REVISAR")
+if (length(ramas_verificadas) < nrow(verif_corr)) {
+  revisar("CP4", "Correspondencia NAICS-SCIAN", "Ramas excluidas de la asignación por código",
+          paste("No se integrarán datos del Census ni del G.17 (rama) para:", paste(setdiff(verif_corr$rama, ramas_verificadas), collapse = ", ")))
+}
+tabla(verif_corr %>% select(rama, scian_titulo, naics2017_titulo, scian_trilateral, en_naics_2022,
+                            rama_sin_cambios_2012_2022, correspondencia_rama_verificada, correspondencia_subsector_verificada),
+      "Verificación oficial de la correspondencia rama SCIAN 2018 = NAICS (INEGI y Census)", max_filas = 100, ancho_texto = 70)
+
 # ---- Ramas: tabla de correspondencias -------------------------------------------------------
 ramas_emim <- nombres_rama %>% arrange(rama)
 subsectores_emim <- emim_largo %>% filter(nivel == "subsector") %>% distinct(subsector = codigo, subsector_nombre = nombre)
@@ -1510,7 +1610,8 @@ correspondencias <- tibble(rama = todas_ramas) %>%
   left_join(census_desc, by = "rama") %>%
   left_join(select(corr, rama = rama_scian, inpp_serie = id_serie_inpp, nombre_rama_corr = nombre_rama), by = "rama") %>%
   left_join(g17_3, by = "subsector") %>%
-  left_join(g17_4, by = "rama")
+  left_join(g17_4, by = "rama") %>%
+  left_join(select(verif_corr, rama, correspondencia_rama_verificada, correspondencia_subsector_verificada), by = "rama")
 tabla(correspondencias %>% select(rama, rama_nombre, en_emim, en_exportaciones, en_census, census_desc, inpp_serie,
                                   g17_serie_subsector, g17_serie_rama, g17_desc_rama),
       "Correspondencia de ramas entre fuentes (solo por código idéntico)", max_filas = 200, ancho_texto = 60)
@@ -1534,8 +1635,8 @@ dif_nombres <- correspondencias %>% filter(en_emim, !is.na(nombre_rama_corr), no
 registrar("CP4", "Ramas", "Nombres de rama iguales en la EMIM y en la tabla de correspondencia", nrow(dif_nombres) == 0,
           if (nrow(dif_nombres)) paste("Ramas con nombre distinto:", paste(dif_nombres$rama, collapse = ", ")) else "Sí",
           si_falla = "REVISAR")
-revisar("CP4", "Ramas", "Equivalencia NAICS (Census, G.17) = SCIAN (EMIM) por código",
-        "Se usa solo la identidad del código de 4 (o 3) dígitos. Compare las descripciones en inglés (Census, G.17) con los nombres SCIAN de la tabla de correspondencia antes de usar estas variables.")
+revisar("CP4", "Conceptos", "Census: clasificación por producto, no por establecimiento",
+        "La correspondencia de códigos está verificada, pero el Census asigna cada producto importado a una industria NAICS (concordancia HS-NAICS), mientras la EMIM clasifica establecimientos. Miden conceptos relacionados, no idénticos.")
 sin_g17 <- correspondencias %>% filter(en_emim, is.na(g17_serie_rama))
 revisar("CP4", "US_PROD_01", "Ramas sin serie G.17 de 4 dígitos idéntica",
         sprintf("%d de %d ramas (%s). Quedan en NA en eeuu_ip_rama; no se usan agregados ni rangos del G.17 para completarlas.",
@@ -1552,10 +1653,10 @@ tabla(g17_no_usadas %>% select(serie, naics, descripcion, tipo_codigo), "Series 
 # ---- Unidades ------------------------------------------------------------------------------
 hom_unid <- tribble(
   ~fuente, ~variable, ~unidad_original, ~tratamiento,
-  "MX_PROD_01", "Valor de producción y ventas", "Miles de pesos corrientes", "Se conserva (no se reescala).",
+  "MX_PROD_01", "Valor de producción y ventas", "Miles de pesos corrientes", "Se conserva y se agrega versión en miles de pesos reales (D4).",
   "MX_PROD_01", "Personal ocupado / horas", "Personas / miles de horas", "Se conserva.",
-  "MX_EXP_01", "Valor de exportaciones", "Pesos corrientes y dólares corrientes", "Se conserva. OJO: pesos, no miles de pesos como la EMIM.",
-  "MX_ARAN_01", "Importaciones, valor gravable y aranceles", "Dólares corrientes", "Se conserva.",
+  "MX_EXP_01", "Valor de exportaciones", "Pesos corrientes y dólares corrientes", "Se conservan; se agrega expo_valor_real = pesos / 1,000, deflactado (D4).",
+  "MX_ARAN_01", "Importaciones, valor gravable y aranceles", "Dólares corrientes", "Se conservan; se agregan versiones × FIX / 1,000, deflactadas (D4).",
   "MX_ARAN_01", "Tasas", "Proporción (0.01 = 1%)", "Se conserva.",
   "PRECIOS_01", "INPP", "Índice; base declarada jul-2025=100, base efectiva jul-2019=100", "Se conserva.",
   "US_PROD_01", "Producción industrial EE.UU.", "Índice 2017=100 (según el script; por confirmar), SA", "Se conserva.",
@@ -1565,9 +1666,9 @@ hom_unid <- tribble(
   "MACRO_01", "Tipo de cambio FIX", "Pesos por dólar, promedio mensual", "Se conserva.",
   "MACRO_02", "VIX", "Puntos de índice (volatilidad anualizada, %)", "Se conserva."
 )
-tabla(hom_unid, "Unidades: se documentan, no se convierten", ancho_texto = 150)
-revisar("CP4", "Unidades", "EMIM en miles de pesos vs. exportaciones en pesos",
-        "No se convierte ninguna unidad. Si se comparan ambas variables, divida las exportaciones entre 1,000 o multiplique la EMIM por 1,000.")
+tabla(hom_unid, "Unidades: originales y tratamiento", ancho_texto = 150)
+revisar("CP4", "Unidades", "Un solo deflactor para todas las variables monetarias de la rama (D4)",
+        "Producción, ventas, exportaciones e importaciones de EE.UU. desde México se deflactan con el INPP de mercancías finales del subsector (base efectiva jul-2019=100). Los montos en dólares se convierten antes con el FIX promedio del mes.")
 revisar("CP4", "Conceptos", "Exportaciones mexicanas vs. importaciones de EE.UU. desde México",
         "Son flujos distintos (destino, registro, valoración). Se conservan como variables separadas (expo_* y eeuu_imp_mx_*).")
 revisar("CP4", "Conceptos", "INPP de mercancías finales como deflactor",
@@ -1601,7 +1702,7 @@ piezas$emim <- pieza("EMIM", "MX_PROD_01", c("mes", "rama"), emim_rama, "México
 piezas$expo <- pieza("Exportaciones", "MX_EXP_01", c("mes", "rama"), expo_rama, "México")
 if (decisiones$aranceles_por_codigo_identico) {
   piezas$census <- pieza("Census: importaciones de EE.UU. desde México y aranceles", "MX_ARAN_01", c("mes", "rama"),
-    census_manuf %>% filter(rama %in% emim_rama$rama) %>%
+    census_manuf %>% filter(rama %in% ramas_verificadas) %>%
       transmute(mes, rama, eeuu_imp_mx_valor_usd = valor_importado, eeuu_imp_mx_valor_gravable_usd = valor_gravable,
                 eeuu_imp_mx_aranceles_usd = aranceles, eeuu_imp_mx_tasa_efectiva = tasa_efectiva,
                 eeuu_imp_mx_tasa_gravable = tasa_gravable),
@@ -1615,6 +1716,7 @@ piezas$inpp <- pieza("INPP del subsector de la rama", "PRECIOS_01", c("mes", "ra
 if (decisiones$ip_eeuu_subsector_codigo_identico) {
   piezas$g17_sub <- pieza("G.17: producción industrial de EE.UU. del subsector (NAICS 3 idéntico)", "US_PROD_01", c("mes", "rama"),
     ramas_emim %>% transmute(rama, subsector = substr(rama, 1, 3)) %>%
+      filter(subsector %in% subsectores_verificados) %>%
       inner_join(g17_3, by = "subsector", relationship = "many-to-one") %>%
       inner_join(select(ip_largo, mes, serie, indice), by = c("g17_serie_subsector" = "serie"), relationship = "many-to-many") %>%
       transmute(mes, rama, eeuu_ip_subsector = indice, eeuu_ip_subsector_serie = g17_serie_subsector),
@@ -1623,6 +1725,7 @@ if (decisiones$ip_eeuu_subsector_codigo_identico) {
 if (decisiones$ip_eeuu_rama_codigo_identico) {
   piezas$g17_rama <- pieza("G.17: producción industrial de EE.UU. de la rama (NAICS 4 idéntico)", "US_PROD_01", c("mes", "rama"),
     ramas_emim %>% select(rama) %>%
+      filter(rama %in% ramas_verificadas) %>%
       inner_join(g17_4, by = "rama", relationship = "one-to-one") %>%
       inner_join(select(ip_largo, mes, serie, indice), by = c("g17_serie_rama" = "serie"), relationship = "one-to-many") %>%
       transmute(mes, rama, eeuu_ip_rama = indice, eeuu_ip_rama_serie = g17_serie_rama),
@@ -1731,15 +1834,39 @@ integrar <- function(base, p, orden) {
 base <- llaves
 for (i in seq_along(piezas)) base <- integrar(base, piezas[[i]], i)
 
-# ---- Variable derivada: valor real de la producción (decisión D4) ----------------------------
-if (decisiones$calcular_valor_produccion_real) {
-  base <- base %>% mutate(emim_valor_produccion_real = emim_valor_produccion / (inpp_subsector_indice / 100))
-  registrar("CP6", "Derivada", "emim_valor_produccion_real solo existe donde hay valor nominal e INPP",
-            sum(!is.na(base$emim_valor_produccion_real)) ==
-              sum(!is.na(base$emim_valor_produccion) & !is.na(base$inpp_subsector_indice)),
-            sprintf("%d valores reales calculados", sum(!is.na(base$emim_valor_produccion_real))))
-  revisar("CP6", "Derivada", "Valor real de la producción (D4)",
-          "emim_valor_produccion_real = emim_valor_produccion / (inpp_subsector_indice / 100): miles de pesos a precios de julio de 2019 (base efectiva del INPP).")
+# ---- Variables en miles de pesos reales de julio de 2019 (decisión D4) -----------------------
+# real = miles de pesos nominales / (INPP del subsector / 100)
+#   miles de pesos -> sin cambio; pesos -> / 1,000; dólares -> × FIX del mes / 1,000
+conversiones <- tribble(
+  ~variable,                          ~origen,                           ~moneda_origen,
+  "emim_valor_produccion_real",       "emim_valor_produccion",           "miles_de_pesos",
+  "emim_valor_ventas_real",           "emim_valor_ventas",               "miles_de_pesos",
+  "expo_valor_real",                  "expo_valor_pesos",                "pesos",
+  "eeuu_imp_mx_valor_real",           "eeuu_imp_mx_valor_usd",           "dolares",
+  "eeuu_imp_mx_valor_gravable_real",  "eeuu_imp_mx_valor_gravable_usd",  "dolares",
+  "eeuu_imp_mx_aranceles_real",       "eeuu_imp_mx_aranceles_usd",       "dolares"
+) %>% filter(origen %in% names(base))
+if (!decisiones$valores_en_miles_de_pesos_reales) conversiones <- conversiones[0, ]
+for (i in seq_len(nrow(conversiones))) {
+  cv <- conversiones[i, ]
+  x <- base[[cv$origen]]
+  miles_nominales <- switch(cv$moneda_origen,
+                            miles_de_pesos = x,
+                            pesos = x / 1000,
+                            dolares = x * base$tc_fix / 1000)
+  base[[cv$variable]] <- miles_nominales / (base$inpp_subsector_indice / 100)
+  insumos <- !is.na(x) & !is.na(base$inpp_subsector_indice) & (cv$moneda_origen != "dolares" | !is.na(base$tc_fix))
+  registrar("CP6", "Conversión D4", paste0(cv$variable, ": existe exactamente donde hay valor original, INPP",
+                                          if (cv$moneda_origen == "dolares") " y tipo de cambio" else ""),
+            identical(!is.na(base[[cv$variable]]), insumos),
+            sprintf("%d valores calculados; %d filas sin algún insumo", sum(!is.na(base[[cv$variable]])), sum(!insumos)))
+}
+if (nrow(conversiones) > 0) {
+  tabla(conversiones %>% mutate(formula = case_when(
+          moneda_origen == "miles_de_pesos" ~ paste0(origen, " / (inpp_subsector_indice / 100)"),
+          moneda_origen == "pesos" ~ paste0("(", origen, " / 1000) / (inpp_subsector_indice / 100)"),
+          TRUE ~ paste0("(", origen, " × tc_fix / 1000) / (inpp_subsector_indice / 100)"))),
+        "Variables en miles de pesos reales de julio de 2019 (D4)", ancho_texto = 150)
 }
 
 tabla(.reg$uniones, "Resumen de cada unión", ancho_texto = 200)
@@ -1811,7 +1938,12 @@ dicc <- tribble(
   "emim_valor_ventas", "Valor de ventas de los productos elaborados (nominal)", "miles de pesos corrientes", "mensual", "mes-rama", "México", "MX_PROD_01", dicc_emim$variable_original[4], "ND -> NA",
   "emim_celdas_nd", "Variables de la EMIM confidenciales (ND) en esa rama y mes", "texto", "mensual", "mes-rama", "México", "MX_PROD_01", "celdas 'ND'", "Indicador del motivo del NA",
   "emim_estatus_cifra", "Estatus de la cifra según las notas de INEGI", "texto (definitiva / revisada / preliminar)", "mensual", "mes-rama", "México", "MX_PROD_01", "notas al pie", "Clasificado por fecha",
-  "emim_valor_produccion_real", "Valor de producción deflactado con el INPP del subsector", "miles de pesos de julio de 2019", "mensual", "mes-rama", "México", "MX_PROD_01 + PRECIOS_01", "—", "emim_valor_produccion / (inpp_subsector_indice / 100) (D4)",
+  "emim_valor_produccion_real", "Valor de producción real", "miles de pesos de julio de 2019", "mensual", "mes-rama", "México", "MX_PROD_01 + PRECIOS_01", "—", "emim_valor_produccion / (inpp_subsector_indice / 100) (D4)",
+  "emim_valor_ventas_real", "Valor de ventas real", "miles de pesos de julio de 2019", "mensual", "mes-rama", "México", "MX_PROD_01 + PRECIOS_01", "—", "emim_valor_ventas / (inpp_subsector_indice / 100) (D4)",
+  "expo_valor_real", "Exportaciones de la rama, reales", "miles de pesos de julio de 2019", "mensual", "mes-rama", "México (todos los destinos)", "MX_EXP_01 + PRECIOS_01", "—", "(expo_valor_pesos / 1000) / (inpp_subsector_indice / 100) (D4)",
+  "eeuu_imp_mx_valor_real", "Importaciones de EE.UU. desde México, reales", "miles de pesos de julio de 2019", "mensual", "mes-rama (NAICS 4 = SCIAN 4)", "EE.UU. <- México", "MX_ARAN_01 + MACRO_01 + PRECIOS_01", "—", "(eeuu_imp_mx_valor_usd × tc_fix / 1000) / (inpp_subsector_indice / 100) (D4)",
+  "eeuu_imp_mx_valor_gravable_real", "Valor gravable de esas importaciones, real", "miles de pesos de julio de 2019", "mensual", "mes-rama (NAICS 4 = SCIAN 4)", "EE.UU. <- México", "MX_ARAN_01 + MACRO_01 + PRECIOS_01", "—", "(eeuu_imp_mx_valor_gravable_usd × tc_fix / 1000) / (inpp_subsector_indice / 100) (D4)",
+  "eeuu_imp_mx_aranceles_real", "Aranceles calculados, reales", "miles de pesos de julio de 2019", "mensual", "mes-rama (NAICS 4 = SCIAN 4)", "EE.UU. <- México", "MX_ARAN_01 + MACRO_01 + PRECIOS_01", "—", "(eeuu_imp_mx_aranceles_usd × tc_fix / 1000) / (inpp_subsector_indice / 100) (D4)",
   "inpp_subsector_indice", "INPP de mercancías y servicios finales por origen, subsector de la rama", "índice, base efectiva jul-2019=100", "mensual", "mes-rama (asignado por subsector)", "México", "PRECIOS_01", "serie según docs/correspondencia_rama_inpp.csv", "Asignación rama -> subsector",
   "inpp_subsector_serie", "Clave INEGI de la serie INPP asignada", "código", "—", "mes-rama", "México", "PRECIOS_01 + DOC_CORR", "fila 'Fecha'", "—",
   "expo_valor_pesos", "Exportaciones de la rama (suma de clases SCIAN de 6 dígitos)", "pesos corrientes", "mensual", "mes-rama", "México (todos los destinos)", "MX_EXP_01", "Datos: Valor en pesos", "Suma por rama",
@@ -1949,11 +2081,19 @@ registrar("CP8", "4. México vs. EE.UU.", "Cada variable conserva exactamente lo
 pref_mx <- grep("^(emim_|expo_|inpp_)", names(base), value = TRUE)
 pref_us <- grep("^eeuu_ip_", names(base), value = TRUE)
 registrar("CP8", "4. México vs. EE.UU.", "Las variables emim_/expo_/inpp_ provienen solo de fuentes mexicanas y eeuu_ip_ solo del G.17",
-          all(diccionario$fuente_id[diccionario$variable %in% pref_mx] %in% c("MX_PROD_01", "MX_EXP_01", "PRECIOS_01", "MX_PROD_01 + PRECIOS_01", "PRECIOS_01 + DOC_CORR")) &&
+          !any(str_detect(diccionario$fuente_id[diccionario$variable %in% pref_mx], "US_PROD")) &&
             all(diccionario$fuente_id[diccionario$variable %in% pref_us] %in% c("US_PROD_01", "US_PROD_02")),
           "Según el diccionario de variables")
 registrar("CP8", "4. México vs. EE.UU.", "La producción mexicana (emim_valor_produccion) y la de EE.UU. (eeuu_ip_*) son columnas distintas",
           !any(pref_us %in% pref_mx) && "emim_valor_produccion" %in% names(base), "")
+# 4b. Variables en miles de pesos reales: se recalculan desde cero y se comparan
+for (i in seq_len(nrow(conversiones))) {
+  cv <- conversiones[i, ]
+  factor <- switch(cv$moneda_origen, miles_de_pesos = 1, pesos = 1 / 1000, dolares = base$tc_fix / 1000)
+  esperado <- base[[cv$origen]] * factor * 100 / base$inpp_subsector_indice
+  registrar("CP8", "4b. Conversión D4", paste0(cv$variable, " se reproduce desde su variable original, el FIX y el INPP"),
+            isTRUE(all.equal(base[[cv$variable]], esperado, tolerance = 1e-10)), "")
+}
 # 5. Comunes constantes (ya comprobado en CP6B; se repite sobre la base final)
 comunes <- unlist(map(keep(piezas, ~ identical(.x$llave, "mes")), ~ setdiff(names(.x$datos), "mes")), use.names = FALSE)
 no_const <- keep(comunes, function(v) any((base %>% group_by(mes) %>% summarise(n = n_distinct(.data[[v]])))$n > 1))
@@ -2002,7 +2142,7 @@ cerrar_checkpoint("CP8", "validaciones finales")
 
 ## Checkpoint 9: escritura y verificación del archivo
 
-El libro contiene la hoja principal `base_integrada` y cuatro hojas auxiliares de documentación (`diccionario`, `cobertura`, `validaciones`, `faltantes`), que **no** son bases alternativas. Primero se escribe un archivo temporal, se vuelve a leer y se compara con la base en R (prueba 12); solo si coincide se guarda con el nombre definitivo.
+El libro contiene la hoja principal `base_integrada` y cinco hojas auxiliares de documentación (`diccionario`, `cobertura`, `validaciones`, `faltantes` y `correspondencia_ramas`, con la verificación NAICS = SCIAN), que **no** son bases alternativas. Primero se escribe un archivo temporal, se vuelve a leer y se compara con la base en R (prueba 12); solo si coincide se guarda con el nombre definitivo.
 
 ```{r exportacion}
 titulo_checkpoint("CHECKPOINT 9 · Exportación y verificación del Excel")
@@ -2014,11 +2154,11 @@ cobertura <- bind_rows(
                       no_faltantes_en_base = no_faltantes_base,
                       nota = if_else(rango_fuente_completo != rango_en_base,
                                      "La fuente tiene meses fuera del panel; no se pierden en la fuente, solo no hay filas mes-rama para ellos.", "")),
-  if (decisiones$calcular_valor_produccion_real)
-    tibble(tipo = "variable derivada", fuente = "MX_PROD_01 + PRECIOS_01", variable = "emim_valor_produccion_real",
-           cobertura_geografica = "México", periodo_en_fuente = NA_character_,
-           periodo_en_base = rango_txt(base$mes[!is.na(base$emim_valor_produccion_real)]),
-           no_faltantes_en_base = sum(!is.na(base$emim_valor_produccion_real)), nota = "Decisión D4"),
+  map_dfr(conversiones$variable, function(v)
+    tibble(tipo = "variable derivada (D4)", fuente = diccionario$fuente_id[diccionario$variable == v], variable = v,
+           cobertura_geografica = diccionario$cobertura_geografica[diccionario$variable == v], periodo_en_fuente = NA_character_,
+           periodo_en_base = rango_txt(base$mes[!is.na(base[[v]])]),
+           no_faltantes_en_base = sum(!is.na(base[[v]])), nota = "Miles de pesos de julio de 2019")),
   tribble(
     ~tipo, ~fuente, ~variable, ~cobertura_geografica, ~periodo_en_fuente, ~nota,
     "fuente no integrada", "MX_ARAN_01", "códigos no manufactureros (11xx, 21xx, 9xxx)", "EE.UU. <- México", rango_txt(census_no_manuf$mes), "Fuera del alcance: solo manufacturas (decisión 3 de las notas).",
@@ -2048,13 +2188,22 @@ faltantes <- bind_rows(
     filter(faltantes > 0) %>% mutate(dimension = "variable x mes", rama = NA_character_, pct_faltantes = round(100 * faltantes / observaciones, 2))
 ) %>% select(dimension, variable, rama, periodo, observaciones, faltantes, pct_faltantes)
 
+# ---- Hoja correspondencia_ramas (documentación de la verificación NAICS = SCIAN) -----------
+hoja_correspondencias <- correspondencias %>%
+  left_join(select(verif_corr, rama, scian_titulo, scian_trilateral, subsector_trilateral, naics2017_titulo, naics2022_titulo,
+                   rama_sin_cambios_2012_2022, subsector_sin_cambios_2012_2022), by = "rama") %>%
+  select(rama, rama_nombre, scian_titulo, scian_trilateral, naics2017_titulo, naics2022_titulo, rama_sin_cambios_2012_2022,
+         correspondencia_rama_verificada, subsector, subsector_trilateral, subsector_sin_cambios_2012_2022,
+         correspondencia_subsector_verificada, en_emim, en_exportaciones, en_census, census_desc, inpp_serie,
+         g17_serie_subsector, g17_desc_subsector, g17_serie_rama, g17_desc_rama)
+
 # ---- Libro -----------------------------------------------------------------------------------
 construir_libro <- function(validaciones) {
   wb <- createWorkbook()
   est_enc <- createStyle(textDecoration = "bold", fgFill = "#DCE6F1", border = "bottom", wrapText = TRUE)
   est_mes <- createStyle(numFmt = "yyyy-mm")
   hojas <- list(base_integrada = base, diccionario = diccionario, cobertura = cobertura,
-                validaciones = validaciones, faltantes = faltantes)
+                validaciones = validaciones, faltantes = faltantes, correspondencia_ramas = hoja_correspondencias)
   for (h in names(hojas)) {
     addWorksheet(wb, h)
     writeData(wb, h, hojas[[h]], headerStyle = est_enc, withFilter = TRUE, keepNA = FALSE)
@@ -2089,7 +2238,7 @@ registrar("CP9", "12. Excel", "Todos los valores coinciden (números, fechas, te
           paste("Columnas con diferencias:", paste(names(base)[!cols_ok], collapse = ", ")))
 registrar("CP9", "12. Excel", "Los códigos de rama se guardaron como texto", is.character(leida$rama) && identical(leida$rama, base$rama), "")
 registrar("CP9", "12. Excel", "El libro contiene exactamente las hojas previstas",
-          identical(readxl::excel_sheets(ruta_tmp), c("base_integrada", "diccionario", "cobertura", "validaciones", "faltantes")),
+          identical(readxl::excel_sheets(ruta_tmp), c("base_integrada", "diccionario", "cobertura", "validaciones", "faltantes", "correspondencia_ramas")),
           paste(readxl::excel_sheets(ruta_tmp), collapse = ", "))
 
 errores_exp <- filter(.reg$checks, checkpoint == "CP9", estado == "ERROR")
@@ -2117,17 +2266,16 @@ tabla(.reg$checks %>% filter(estado == "REVISAR") %>% select(checkpoint, fuente,
       "Todo lo que requiere su revisión (estado REVISAR)", max_filas = 300, ancho_texto = 400)
 ```
 
-**Decisiones de limpieza e integración que requieren su revisión** (además de la tabla anterior):
+**Estado de las decisiones (acordadas el 2026-09-24):**
 
-1. **Universo del panel (D1).** Con el Census en el universo, 85 ramas empiezan en 2013-01 y la rama 3328 (sin datos del Census) en 2018-01. Si prefiere un panel que empiece con la EMIM, quite `MX_ARAN_01` de `universo_llaves` (los aranceles se seguirán pegando a los meses de la EMIM).
-2. **NAICS = SCIAN por código (D2, D3).** Aranceles del Census y producción de EE.UU. se asignan por identidad del código. Compare las descripciones en la tabla de correspondencias del checkpoint 4.
-3. **Producción de EE.UU. (D3).** El archivo G.17 no tiene total nacional. Si quiere un control agregado de demanda externa (por ejemplo, el índice total de producción industrial o de manufactura de EE.UU.), hay que descargar esa serie; no se construye sumando series.
-4. **Medida WTUI (D7).** Las notas acuerdan usar la WTUI, pero no el país. La base trae `wtui_mex`, `wtui_usa` y `wtui_mundo_pib`. Ojo: `wtui_mex` vale 0 en la mayoría de los meses.
-5. **VIX (D6).** Sin regla de conversión, no se integra. Elija `promedio_mensual` o `ultimo_dato_del_mes`.
-6. **Deflactor (D4).** Base efectiva del INPP jul-2019=100 (el título dice jul-2025) e INPP de mercancías finales, a nivel de subsector.
-7. **Unidades.** EMIM en miles de pesos; exportaciones en pesos. No se convirtió nada.
+1. **Panel (D1):** desde 2018-01, con las filas mes-rama de la EMIM y las exportaciones. Los datos del Census de 2013-2017 no tienen fila en el panel; quedan documentados en la hoja `cobertura`.
+2. **Correspondencia NAICS = SCIAN (D2, D3):** verificada con los clasificadores oficiales. Las 86 ramas y los 21 subsectores son categorías trilaterales del SCIAN 2018, existen con el mismo código en NAICS 2017 y 2022, y ninguna clase cambió de rama entre NAICS 2012, 2017 y 2022. Detalle en la hoja `correspondencia_ramas`.
+3. **Control agregado de EE.UU.:** se incorporará aparte (el G.17 del repositorio no trae total nacional).
+4. **Incertidumbre comercial (D7):** las tres WTUI (`wtui_mex`, `wtui_usa`, `wtui_mundo_pib`). Ojo: `wtui_mex` vale 0 en la mayoría de los meses.
+5. **VIX (D6):** promedio mensual de los días con dato.
+6. **Unidades (D4):** todas las variables monetarias tienen versión en miles de pesos reales de julio de 2019 (sufijo `_real`); se conservan las nominales originales.
+7. **Otros controles** (TIIE, tipo de cambio real, etc.): se agregarán después; no existen en los archivos del repositorio.
 8. **Series no integradas:** TPU trimestral (con `TARIFFVOL`) y diaria, hoja `Autopartes`, códigos no manufactureros del Census, series G.17 con rangos o partes de industria, INPP de sectores no manufactureros.
-9. **Otros controles** (TIIE, tipo de cambio real, etc.): no existen en los archivos del repositorio.
 
 # Información de la sesión
 

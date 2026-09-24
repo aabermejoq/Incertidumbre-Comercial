@@ -90,11 +90,12 @@ Ver las [notas metodológicas](docs/notas_metodologicas.md).
 │   │   ├── incertidumbre/                TPU, WUI/WTUI/WPUI y EPU México
 │   │   ├── precios/                      INPP por origen (deflactores)
 │   │   └── controles_macroeconomicos/    Tipo de cambio FIX y VIX
+│   │   └── clasificadores/               SCIAN 2018 (INEGI), NAICS 2017/2022 y concordancias (Census)
 │   ├── interim/                          Datos derivados o transformados
 │   │   └── aranceles/                    Tasa efectiva en formato ancho
 │   └── processed/                        (reservado) base integrada y validada
 ├── code/
-│   ├── Python/                           Scripts de descarga (Census, G.17 y VIX)
+│   ├── Python/                           Scripts de descarga (Census, G.17, VIX y clasificadores)
 │   └── R/                                01_preparacion_base_integrada.Rmd (limpieza, validación e integración)
 ├── docs/
 │   ├── inventario_fuentes.csv            Inventario completo de archivos
@@ -119,6 +120,8 @@ Ver las [notas metodológicas](docs/notas_metodologicas.md).
 Se usará el **valor real de la producción manufacturera** (SCIAN 31-33) de la EMIM por rama. Para obtenerlo, el valor nominal se deflactará con el INPP del subsector al que pertenece cada rama; la asignación está en [`docs/correspondencia_rama_inpp.csv`](docs/correspondencia_rama_inpp.csv).
 
 Las tres medidas de incertidumbre son TPU, WTUI y EPU México, y el VIX se usará como control de incertidumbre financiera global. Los valores confidenciales se tratarán como faltantes y el análisis usará información completa, que empieza en 2019-01.
+
+El panel integrado empieza en 2018-01. La correspondencia NAICS = SCIAN por código se verificó con los clasificadores oficiales de INEGI y del Census. Todas las variables monetarias se expresan también en miles de pesos reales de julio de 2019. El VIX se convierte a mensual con el promedio mensual.
 
 El detalle está en la sección 0 de las [notas metodológicas](docs/notas_metodologicas.md).
 

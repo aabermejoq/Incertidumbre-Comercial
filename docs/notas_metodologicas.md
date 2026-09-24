@@ -15,6 +15,15 @@ Registradas el 2026-09-24, con base en las respuestas del responsable del proyec
 7. **Anomalías arancelarias** en las ramas 1119 y 3119: no requieren tratamiento especial (la 1119 queda fuera por no ser manufacturera).
 8. **Control de incertidumbre financiera global:** se incorpora el VIX (`MACRO_02`, FRED/CBOE). Otros controles (tipo de cambio real, TIIE) quedan pendientes de instrucciones.
 
+Registradas el 2026-09-24, al revisar el R Markdown de integración (`code/R/01_preparacion_base_integrada.Rmd`):
+
+9. **Periodo del panel:** las filas mes-rama empiezan en 2018-01 (EMIM). Los datos del Census de 2013-2017 no forman filas del panel; quedan documentados en la hoja `cobertura` del Excel.
+10. **Correspondencia NAICS = SCIAN:** se verificó con clasificadores oficiales (`data/raw/clasificadores/`, descargados con `code/Python/clasificadores.py`). Las 86 ramas y los 21 subsectores manufactureros del SCIAN 2018 son categorías trilaterales (marca «T»). Sus códigos coinciden con NAICS 2017 y 2022, y ninguna clase manufacturera cambió de rama ni de subsector entre NAICS 2012, 2017 y 2022. El R Markdown repite esta verificación y solo asigna datos del Census y del G.17 a ramas verificadas.
+11. **Control agregado de EE.UU.:** se incorporará aparte, porque el G.17 del repositorio no trae el total nacional.
+12. **Incertidumbre comercial:** se usan las tres WTUI: México, EE.UU. y el promedio mundial ponderado por PIB.
+13. **VIX:** se convierte a mensual con el promedio de los días con dato.
+14. **Unidades monetarias:** todas se expresan también en miles de pesos reales de julio de 2019, deflactadas con el INPP del subsector. Los dólares se convierten antes con el FIX promedio del mes. Se conservan las variables nominales originales.
+
 ## 1. Cobertura temporal y frecuencia
 
 | Fuente | Frecuencia | Inicio | Fin |
@@ -86,5 +95,5 @@ Registradas el 2026-09-24, con base en las respuestas del responsable del proyec
 1. ¿De dónde vienen y cómo se construyeron las series de la hoja `Autopartes` (`xparts`, `inpp336`, `xparts_r_ae`)?
 2. ¿Hay que confirmar con INEGI la base del INPP (julio de 2019 frente a julio de 2025)? ¿Vale la pena conseguir el INPP de *producción total* (que incluye bienes intermedios) como deflactor alternativo?
 3. ¿Qué método de ajuste estacional se usará, si se usa alguno?
-4. ¿Qué otros controles macroeconómicos se incorporarán, además del tipo de cambio nominal y el VIX? ¿Con qué regla se agregará el VIX diario a mensual (promedio, fin de mes)?
+4. ¿Qué otros controles macroeconómicos se incorporarán, además del tipo de cambio nominal y el VIX? (La regla del VIX ya se acordó: promedio mensual.)
 5. ¿Cómo se tratarán las clases de exportación que no están en la EMIM al agregar a nivel rama? Las 86 ramas coinciden, así que agregar por rama las incluye.
