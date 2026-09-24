@@ -95,7 +95,7 @@ Ver las [notas metodológicas](docs/notas_metodologicas.md).
 │   └── processed/                        (reservado) base integrada y validada
 ├── code/
 │   ├── Python/                           Scripts de descarga (Census, G.17 y VIX)
-│   └── R/                                (reservado) scripts y R Markdown de etapas posteriores
+│   └── R/                                01_preparacion_base_integrada.Rmd (limpieza, validación e integración)
 ├── docs/
 │   ├── inventario_fuentes.csv            Inventario completo de archivos
 │   ├── correspondencia_rama_inpp.csv     Deflactor INPP asignado a cada rama EMIM
@@ -130,8 +130,8 @@ El detalle está en la sección 0 de las [notas metodológicas](docs/notas_metod
 | Inventario de fuentes | Completado (15 archivos: 12 de datos y 3 scripts) |
 | Inspección de metadatos | Completada para los 12 archivos de datos: todas las hojas, dimensiones, encabezados, cobertura y códigos de clasificación. No se revisaron todas las celdas. |
 | Correspondencia rama–deflactor | Completada (86 ramas → 21 subsectores INPP) |
-| Limpieza de datos | Pendiente |
-| Integración de fuentes | Pendiente |
+| Limpieza de datos | Código listo: `code/R/01_preparacion_base_integrada.Rmd` (pendiente de ejecutar y revisar) |
+| Integración de fuentes | Código listo: genera `data/processed/base_incertidumbre_comercial_mexico.xlsx` y el reporte HTML en `outputs/reports/` |
 | Estimación econométrica | Pendiente |
 
 ## Próximos pasos

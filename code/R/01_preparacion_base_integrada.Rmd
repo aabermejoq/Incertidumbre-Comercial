@@ -1,0 +1,2139 @@
+---
+title: "Base integrada mensual por rama: incertidumbre comercial y manufactura de México"
+subtitle: "Etapas 2 y 3: inspección, limpieza, validación e integración de fuentes (sin estimación econométrica)"
+author: "Proyecto Incertidumbre Comercial"
+date: "`r format(Sys.time(), '%Y-%m-%d %H:%M')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    self_contained: true
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_dir = normalizePath(file.path(dirname(inputFile), "..", "..", "outputs", "reports"), mustWork = FALSE), envir = new.env()) })
+---
+
+```{r opciones-knitr, include = FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, results = "asis", message = FALSE, warning = TRUE,
+  comment = NA, fig.show = "hide"
+)
+options(dplyr.summarise.inform = FALSE, width = 120, scipen = 6)
+```
+
+# Cómo usar este documento {-}
+
+**Qué hace.** Lee los archivos originales de `data/raw/` (y el derivado de `data/interim/aranceles/`, solo para verificarlo), los inspecciona, limpia y valida uno por uno, homologa fechas, ramas y unidades, integra todo en **un panel mensual `mes` × `rama`** y lo exporta a **un solo archivo Excel**: `data/processed/base_incertidumbre_comercial_mexico.xlsx`. **No** estima modelos, **no** imputa, **no** interpola, **no** balancea el panel y **no** recorta la muestra a un periodo común.
+
+**Cómo ejecutarlo en RStudio.**
+
+1. Abra el repositorio en RStudio (idealmente como proyecto, o con el directorio de trabajo en cualquier carpeta del repositorio). Las rutas se resuelven con `here::here()` a partir de la raíz del repositorio; no hay rutas absolutas.
+2. Instale los paquetes que falten (la sección 1 le dice exactamente cuáles, si falta alguno). El documento **no** instala paquetes por su cuenta.
+3. Revise el bloque **`decisiones`** de la sección 1.3. Ahí están, a la vista, todas las decisiones de integración que no se pueden resolver solo con los archivos. Los valores por defecto son los más conservadores que permiten construir la base; cada uno queda marcado como `REVISAR` en el reporte.
+4. Pulse **Knit**. El HTML se guarda en `outputs/reports/`. También puede ejecutar los bloques uno por uno (*Run All* o `Ctrl+Alt+R`) y revisar cada checkpoint en la consola.
+
+**Cómo leer los checkpoints.** Cada sección termina con una tabla de comprobaciones con tres estados posibles:
+
+| Estado | Significado | ¿Qué pasa con la ejecución? |
+|---|---|---|
+| <span style="background:#1b7f3b;color:#fff;padding:2px 6px;border-radius:4px;font-weight:bold">OK</span> | La comprobación se ejecutó y se cumplió. | Continúa. |
+| <span style="background:#b26a00;color:#fff;padding:2px 6px;border-radius:4px;font-weight:bold">REVISAR</span> | Advertencia o decisión que requiere su atención. No impide construir la base. | Continúa; queda registrada en la hoja `validaciones` del Excel. |
+| <span style="background:#b00020;color:#fff;padding:2px 6px;border-radius:4px;font-weight:bold">ERROR</span> | Problema que impide continuar de forma segura. | **El documento se detiene** al cerrar el checkpoint. El HTML se genera hasta ese punto, con un recuadro rojo que explica el problema. No se exporta el Excel. |
+
+Además, si un archivo no tiene la estructura esperada (por ejemplo, cambió un encabezado), el código se detiene de inmediato con un mensaje que empieza con `*** PROCESO DETENIDO ***` y dice qué revisar. Ninguna comprobación se marca como `OK` si no se ejecutó: si no se pudo evaluar, aparece como `ERROR` o `REVISAR` con la leyenda *[No se pudo evaluar]*.
+
+**Convenciones de nombres en la base.**
+
+| Prefijo | Significado | Cobertura geográfica |
+|---|---|---|
+| `emim_` | Encuesta Mensual de la Industria Manufacturera (INEGI), por rama | México |
+| `expo_` | Exportaciones mexicanas (Banxico, Comext), agregadas de clase a rama | México |
+| `eeuu_imp_mx_` | Importaciones de EE.UU. **desde México** y aranceles (Census), por NAICS 4 | Flujo EE.UU. ← México |
+| `inpp_` | Índice Nacional de Precios Productor (INEGI) del subsector de la rama | México |
+| `eeuu_ip_` | Producción industrial de **EE.UU.** (Fed, G.17), por industria NAICS | EE.UU. |
+| `tpu`, `wui_`, `wtui_`, `wpui_`, `epu_mex` | Medidas de incertidumbre (comunes a todas las ramas en cada mes) | EE.UU. / país / mundo / México |
+| `tc_fix`, `vix_` | Controles macroeconómicos comunes | México / EE.UU. |
+| `obs_` | Indicadores de si la combinación mes–rama existe en cada fuente que define el panel | — |
+
+# Configuración del proyecto y rutas
+
+## Paquetes, raíz del repositorio y entorno
+
+Se verifica que estén instalados los paquetes necesarios y se fija la raíz del repositorio con `here::i_am()`. Se usan paquetes del *tidyverse* cargados individualmente (no el metapaquete) para reducir dependencias.
+
+```{r paquetes}
+paquetes <- c("dplyr", "tidyr", "readr", "stringr", "purrr", "tibble",
+              "readxl", "lubridate", "openxlsx", "here", "knitr", "rmarkdown")
+faltan <- paquetes[!vapply(paquetes, requireNamespace, logical(1), quietly = TRUE)]
+if (length(faltan) > 0) {
+  stop("\n\n*** PROCESO DETENIDO ***\nFaltan paquetes: ", paste(faltan, collapse = ", "),
+       "\nInstálelos con:\n  install.packages(c(", paste0('"', faltan, '"', collapse = ", "), "))\n",
+       call. = FALSE)
+}
+if (utils::packageVersion("dplyr") < "1.1.0") {
+  stop("\n\n*** PROCESO DETENIDO ***\nSe requiere dplyr >= 1.1.0 (se usa el argumento ",
+       "'relationship' de los joins para impedir multiplicaciones de filas). ",
+       "Actualice con install.packages(\"dplyr\").", call. = FALSE)
+}
+
+suppressPackageStartupMessages({
+  library(dplyr); library(tidyr); library(readr); library(stringr); library(purrr)
+  library(tibble); library(readxl); library(lubridate); library(openxlsx)
+})
+
+# Fija la raíz del repositorio: busca hacia arriba la carpeta que contiene este archivo.
+here::i_am("code/R/01_preparacion_base_integrada.Rmd")
+RAIZ <- here::here()
+cat("**Raíz del repositorio:** `", RAIZ, "`\n\n", sep = "")
+cat("**Inicio de la ejecución:** ", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n\n", sep = "")
+cat("**R:** ", R.version.string, " · **Codificación UTF-8 activa:** ",
+    isTRUE(l10n_info()[["UTF-8"]]), "\n\n", sep = "")
+```
+
+## Funciones auxiliares: registro de comprobaciones, tablas y mensajes
+
+Todas las comprobaciones se guardan en un registro único (`.reg$checks`), que al final se exporta a la hoja `validaciones`. Las funciones de conversión (`convertir_num()`, `a_fecha()`) registran cuántas celdas no se pudieron convertir, para que ninguna transformación sea silenciosa.
+
+```{r funciones-auxiliares}
+# ---- Registro global ---------------------------------------------------------
+.reg <- new.env(parent = emptyenv())
+.reg$checks <- tibble(checkpoint = character(), fuente = character(), prueba = character(),
+                      resultado = character(), estado = character())
+.reg$conversiones <- tibble()
+.reg$exclusiones  <- tibble()
+.reg$limpieza     <- tibble()
+.reg$uniones      <- tibble()
+
+registrar <- function(checkpoint, fuente, prueba, ok, resultado = "", si_falla = "ERROR") {
+  stopifnot(si_falla %in% c("ERROR", "REVISAR"))
+  resultado <- paste(resultado, collapse = " ")
+  if (length(ok) != 1 || is.na(ok)) {
+    estado <- si_falla
+    resultado <- paste("[No se pudo evaluar]", resultado)
+  } else if (isTRUE(ok)) {
+    estado <- "OK"
+  } else {
+    estado <- si_falla
+  }
+  .reg$checks <- bind_rows(.reg$checks, tibble(checkpoint = checkpoint, fuente = fuente,
+                                               prueba = prueba, resultado = resultado,
+                                               estado = estado))
+  invisible(estado)
+}
+# Atajo para advertencias o decisiones que siempre requieren revisión.
+revisar <- function(checkpoint, fuente, prueba, resultado) {
+  registrar(checkpoint, fuente, prueba, FALSE, resultado, si_falla = "REVISAR")
+}
+# Documenta filas o celdas que se descartan (nunca se descarta nada sin pasar por aquí).
+excluir <- function(fuente, n, motivo) {
+  .reg$exclusiones <- bind_rows(.reg$exclusiones,
+                                tibble(fuente = fuente, filas_o_celdas = as.integer(n), motivo = motivo))
+}
+
+# ---- Detenciones --------------------------------------------------------------
+detener <- function(...) {
+  stop("\n\n*** PROCESO DETENIDO ***\n", paste0(...), "\n", call. = FALSE)
+}
+exigir <- function(condicion, ...) {
+  if (!isTRUE(condicion)) detener(...)
+  invisible(TRUE)
+}
+
+# ---- Salida HTML ---------------------------------------------------------------
+esc_html <- function(x) {
+  x <- gsub("&", "&amp;", x, fixed = TRUE)
+  x <- gsub("<", "&lt;", x, fixed = TRUE)
+  gsub(">", "&gt;", x, fixed = TRUE)
+}
+badge <- function(e) {
+  col <- c(OK = "#1b7f3b", REVISAR = "#b26a00", ERROR = "#b00020")[e]
+  col[is.na(col)] <- "#555555"
+  sprintf('<span style="background:%s;color:#fff;padding:2px 6px;border-radius:4px;font-weight:bold">%s</span>',
+          col, e)
+}
+fmt_num <- function(x, digitos = 6) {
+  vapply(x, function(v) {
+    if (is.na(v)) return(NA_character_)
+    if (abs(v) >= 1e4) return(prettyNum(round(v, 2), big.mark = ",", scientific = FALSE))
+    format(signif(v, digitos), scientific = FALSE, trim = TRUE)
+  }, character(1))
+}
+tabla <- function(df, titulo = NULL, max_filas = 60, ancho_texto = 90) {
+  if (!is.null(titulo)) cat("\n\n**", titulo, "**\n\n", sep = "")
+  df <- as.data.frame(df, stringsAsFactors = FALSE, check.names = FALSE)
+  n <- nrow(df)
+  if (n == 0) { cat("\n\n_(sin filas)_\n\n"); return(invisible(NULL)) }
+  if (n > max_filas) df <- utils::head(df, max_filas)
+  df[] <- lapply(df, function(col) {
+    if (inherits(col, "Date")) col <- format(col, "%Y-%m-%d")
+    if (inherits(col, "POSIXt")) col <- format(col, "%Y-%m-%d %H:%M")
+    if (is.numeric(col)) col <- fmt_num(col)
+    col <- as.character(col)
+    largo <- !is.na(col) & nchar(col) > ancho_texto
+    col[largo] <- paste0(substr(col[largo], 1, ancho_texto - 3), "...")
+    col[is.na(col)] <- "NA"
+    esc_html(col)
+  })
+  if ("estado" %in% names(df)) df$estado <- badge(df$estado)
+  cat(knitr::kable(df, format = "html", escape = FALSE,
+                   table.attr = 'class="table table-condensed table-bordered table-striped" style="font-size:82%; width:auto;"'),
+      sep = "\n")
+  if (n > max_filas) cat(sprintf("\n\n_Se muestran %d de %d filas._\n\n", max_filas, n))
+  cat("\n\n")
+  invisible(NULL)
+}
+aviso <- function(texto, tipo = c("info", "revisar", "error", "ok")) {
+  tipo <- match.arg(tipo)
+  clase <- c(info = "alert-info", revisar = "alert-warning", error = "alert-danger", ok = "alert-success")[[tipo]]
+  cat(sprintf('\n\n<div class="alert %s" role="alert">%s</div>\n\n', clase, texto))
+  if (!isTRUE(getOption("knitr.in.progress"))) {
+    message("[", toupper(tipo), "] ", gsub("<[^>]+>", "", texto))
+  }
+}
+titulo_checkpoint <- function(texto) {
+  cat(sprintf('\n\n<div style="border-left:6px solid #2c5aa0;background:#eef3fb;padding:8px 12px;margin:12px 0;font-weight:bold;font-size:110%%;">&#9873; %s</div>\n\n', texto))
+}
+
+RUTA_EXCEL_FINAL <- NULL  # se define en la sección 1.4
+
+# Cierra un checkpoint: muestra sus comprobaciones y detiene el proceso si hay ERROR.
+cerrar_checkpoint <- function(cp, nombre) {
+  x <- filter(.reg$checks, checkpoint == cp)
+  n_ok <- sum(x$estado == "OK"); n_rev <- sum(x$estado == "REVISAR"); n_err <- sum(x$estado == "ERROR")
+  cat(sprintf("\n\n**Resumen del %s (%s):** %d OK · %d REVISAR · %d ERROR\n\n", cp, nombre, n_ok, n_rev, n_err))
+  tabla(select(x, -checkpoint), max_filas = 1000, ancho_texto = 400)
+  if (n_err > 0) {
+    err <- filter(x, estado == "ERROR")
+    msg <- paste0("<b>", cp, " (", nombre, "): ", n_err, " comprobación(es) en ERROR. El proceso se detuvo aquí ",
+                  "y no se exportó ningún archivo.</b><br>",
+                  paste0("&bull; ", esc_html(err$fuente), ": ", esc_html(err$prueba), " &rarr; ",
+                         esc_html(err$resultado), collapse = "<br>"),
+                  "<br>Revise el problema en la fuente o en el código de esta sección antes de volver a ejecutar.")
+    if (!is.null(RUTA_EXCEL_FINAL) && file.exists(RUTA_EXCEL_FINAL)) {
+      msg <- paste0(msg, "<br><b>Atención:</b> el archivo <code>", esc_html(RUTA_EXCEL_FINAL),
+                    "</code> existe de una ejecución anterior y <b>no</b> corresponde a esta ejecución.")
+    }
+    aviso(msg, "error")
+    if (isTRUE(getOption("knitr.in.progress"))) {
+      knitr::knit_exit()
+    } else {
+      stop("\n\n*** PROCESO DETENIDO en ", cp, " ***\n",
+           paste0("- ", err$fuente, ": ", err$prueba, " -> ", err$resultado, collapse = "\n"), call. = FALSE)
+    }
+  } else if (n_rev > 0) {
+    aviso(sprintf("<b>%s:</b> sin errores críticos. Hay %d punto(s) marcados como REVISAR: puede continuar, pero léalos antes de usar la base.", cp, n_rev), "revisar")
+  } else {
+    aviso(sprintf("<b>%s:</b> todas las comprobaciones se ejecutaron y se cumplieron.", cp), "ok")
+  }
+  invisible(x)
+}
+
+# ---- Texto, números y fechas -------------------------------------------------------
+norm_txt <- function(x) {
+  x <- tolower(trimws(as.character(x)))
+  chartr("áéíóúüñ", "aeiouun", x)
+}
+MESES_ES  <- c(enero = 1, febrero = 2, marzo = 3, abril = 4, mayo = 5, junio = 6, julio = 7,
+               agosto = 8, septiembre = 9, octubre = 10, noviembre = 11, diciembre = 12)
+MESES_ABR <- c(ene = 1, feb = 2, mar = 3, abr = 4, may = 5, jun = 6, jul = 7, ago = 8,
+               sep = 9, oct = 10, nov = 11, dic = 12)
+fmt_mes <- function(d) format(d, "%Y-%m")
+rango_txt <- function(d) {
+  d <- d[!is.na(d)]
+  if (length(d) == 0) return("sin datos")
+  paste(fmt_mes(min(d)), "a", fmt_mes(max(d)))
+}
+
+# Convierte texto a número. Las celdas con contenido que no se pueden convertir se cuentan
+# y se registran; los códigos de faltante declarados (p. ej. "ND") se cuentan aparte.
+convertir_num <- function(x, fuente, variable, codigos_faltante = character()) {
+  x <- str_trim(as.character(x))
+  vacio <- is.na(x) | x == ""
+  es_codigo <- !vacio & x %in% codigos_faltante
+  num <- rep(NA_real_, length(x))
+  a_convertir <- !vacio & !es_codigo
+  num[a_convertir] <- suppressWarnings(as.numeric(x[a_convertir]))
+  fallo <- a_convertir & is.na(num)
+  .reg$conversiones <- bind_rows(.reg$conversiones, tibble(
+    fuente = fuente, variable = variable,
+    celdas_con_contenido = sum(!vacio), convertidas = sum(!is.na(num)),
+    codigos_de_faltante = sum(es_codigo),
+    codigos = if (any(es_codigo)) paste(sort(unique(x[es_codigo])), collapse = ", ") else "",
+    no_convertibles = sum(fallo),
+    ejemplos_no_convertibles = paste(utils::head(unique(x[fallo]), 5), collapse = " | ")))
+  num
+}
+
+# Convierte fechas de Excel (número de serie, como texto o número) o texto AAAA-MM-DD a Date.
+a_fecha <- function(x) {
+  if (inherits(x, "Date")) return(x)
+  if (inherits(x, "POSIXt")) return(as.Date(x, tz = "UTC"))
+  x <- str_trim(as.character(x))
+  num <- suppressWarnings(as.numeric(x))
+  out <- rep(as.Date(NA), length(x))
+  i_num <- !is.na(num)
+  out[i_num] <- as.Date(num[i_num], origin = "1899-12-30")
+  i_txt <- !i_num & !is.na(x) & x != ""
+  if (any(i_txt)) {
+    out[i_txt] <- as.Date(suppressWarnings(
+      lubridate::parse_date_time(x[i_txt], orders = c("Ymd", "Ym", "dmY"), quiet = TRUE)))
+  }
+  out
+}
+
+# Comprueba que un vector de fechas sea mensual, sin NA, en día 1 y sin huecos.
+validar_fechas_mensuales <- function(fechas, fuente, cp = "CP3", texto_original = NULL) {
+  n_na <- sum(is.na(fechas))
+  registrar(cp, fuente, "Fechas convertidas sin NA", n_na == 0,
+            sprintf("%d fechas no convertidas%s", n_na,
+                    if (n_na > 0 && !is.null(texto_original))
+                      paste0(" (ej.: ", paste(utils::head(unique(texto_original[is.na(fechas)]), 3), collapse = " | "), ")")
+                    else ""))
+  f <- fechas[!is.na(fechas)]
+  registrar(cp, fuente, "Fechas en día 1 (frecuencia mensual)", all(lubridate::day(f) == 1),
+            sprintf("%d fechas con día distinto de 1", sum(lubridate::day(f) != 1)))
+  u <- sort(unique(f))
+  if (length(u) > 0 && all(lubridate::day(u) == 1)) {
+    esperado <- seq(min(u), max(u), by = "month")
+    huecos <- esperado[!esperado %in% u]
+    registrar(cp, fuente, "Meses consecutivos, sin huecos", length(huecos) == 0,
+              if (length(huecos) == 0) sprintf("%s (%d meses)", rango_txt(u), length(u))
+              else paste0(length(huecos), " meses sin registro: ", paste(fmt_mes(utils::head(huecos, 12)), collapse = ", ")),
+              si_falla = "REVISAR")
+  }
+  invisible(u)
+}
+
+validar_llave <- function(df, llave, fuente, cp) {
+  d <- df %>% count(pick(all_of(llave))) %>% filter(n > 1)
+  registrar(cp, fuente, paste0("Llave única (", paste(llave, collapse = " + "), ")"), nrow(d) == 0,
+            sprintf("%d combinaciones duplicadas de %d filas", nrow(d), nrow(df)))
+  invisible(d)
+}
+
+resumir_limpieza <- function(fuente, objeto, filas_iniciales, df, llave, columnas_originales, motivo) {
+  dup <- nrow(df %>% count(pick(all_of(llave))) %>% filter(n > 1))
+  fechas <- if ("mes" %in% names(df)) df$mes else if ("fecha" %in% names(df)) df$fecha else as.Date(NA)
+  .reg$limpieza <- bind_rows(.reg$limpieza, tibble(
+    fuente = fuente, objeto_limpio = objeto, filas_iniciales = as.integer(filas_iniciales),
+    filas_finales = nrow(df), explicacion_cambio_filas = motivo,
+    columnas_originales = columnas_originales,
+    columnas_homologadas = paste(names(df), collapse = ", "),
+    rango_fechas = rango_txt(fechas),
+    n_ramas_o_series = if ("rama" %in% names(df)) n_distinct(df$rama)
+                       else if ("serie" %in% names(df)) n_distinct(df$serie)
+                       else if ("naics" %in% names(df)) n_distinct(df$naics) else NA_integer_,
+    llave = paste(llave, collapse = " + "), duplicados_en_llave = dup))
+}
+
+faltantes_por_variable <- function(df, vars) {
+  tibble(variable = vars,
+         n = nrow(df),
+         n_faltantes = map_int(vars, ~ sum(is.na(df[[.x]]))),
+         pct_faltantes = round(100 * n_faltantes / pmax(n, 1), 2))
+}
+
+# Lee una hoja de Excel completa como texto (sin interpretar encabezados).
+reparar_nombres <- function(n) paste0("c", seq_along(n))
+leer_texto <- function(ruta, hoja, rango = NULL) {
+  readxl::read_excel(ruta, sheet = hoja, col_names = FALSE, col_types = "text",
+                     range = rango, .name_repair = reparar_nombres)
+}
+# Usa la fila `fila` como encabezado y la elimina de los datos.
+con_encabezado <- function(x, fila = 1) {
+  nm <- as.character(unlist(x[fila, ], use.names = FALSE))
+  vacios <- is.na(nm) | nm == ""
+  nm[vacios] <- paste0("sin_nombre_", which(vacios))
+  names(x) <- make.unique(nm, sep = "_")
+  x[-seq_len(fila), ]
+}
+leer_csv_texto <- function(ruta) {
+  readr::read_csv(ruta, col_types = readr::cols(.default = readr::col_character()),
+                  na = c(""), trim_ws = TRUE, progress = FALSE, show_col_types = FALSE)
+}
+
+# Perfil de columnas de un objeto leído como texto.
+perfil_columnas <- function(df, max_cols = 15) {
+  cols <- names(df)[seq_len(min(max_cols, ncol(df)))]
+  map_dfr(cols, function(cn) {
+    v <- as.character(df[[cn]])
+    v <- v[!is.na(v) & v != ""]
+    num <- suppressWarnings(as.numeric(v))
+    tibble(columna = cn, celdas_con_contenido = length(v), celdas_vacias = nrow(df) - length(v),
+           pct_convertible_a_numero = if (length(v)) round(100 * mean(!is.na(num)), 1) else NA_real_,
+           ejemplo = if (length(v)) v[1] else NA_character_)
+  })
+}
+inspeccionar <- function(df, nombre, n_filas = 5, n_cols = 8, max_cols_perfil = 15) {
+  cat(sprintf("\n\n#### %s\n\n", nombre))
+  cat(sprintf("- **Dimensiones leídas:** %d filas × %d columnas\n", nrow(df), ncol(df)))
+  nms <- names(df)
+  cat(sprintf("- **Nombres de columna (%d):** %s%s\n\n", length(nms),
+              esc_html(paste(utils::head(nms, 20), collapse = ", ")),
+              if (length(nms) > 20) ", ..." else ""))
+  tabla(perfil_columnas(df, max_cols_perfil),
+        sprintf("Perfil de columnas (primeras %d; todo se leyó como texto)", min(max_cols_perfil, ncol(df))))
+  sel <- seq_len(min(n_cols, ncol(df)))
+  tabla(utils::head(df[, sel], n_filas), sprintf("Primeras %d filas (primeras %d columnas)", n_filas, length(sel)))
+  tabla(utils::tail(df[, sel], n_filas), sprintf("Últimas %d filas (primeras %d columnas)", n_filas, length(sel)))
+}
+```
+
+## Decisiones de integración que requieren su revisión
+
+Este bloque reúne **todas** las decisiones que no pueden resolverse solo con los archivos. Los valores por defecto son conservadores: integran únicamente información con una correspondencia exacta de códigos (sin promedios, sin agregaciones inventadas) y dejan fuera lo que requiere una regla que aún no se ha acordado (por ejemplo, convertir el VIX diario a mensual). Cambie los valores aquí y vuelva a ejecutar; no hace falta tocar nada más.
+
+```{r decisiones}
+decisiones <- list(
+  # D1. Fuentes cuyas combinaciones (mes, rama) definen las filas del panel. Son las fuentes que
+  #     observan directamente cada rama mexicana. Las demás variables se pegan sobre esas filas.
+  universo_llaves = c("MX_PROD_01", "MX_EXP_01", "MX_ARAN_01"),
+
+  # D2. Aranceles e importaciones de EE.UU. desde México (Census, NAICS 4): integrarlos a la rama
+  #     SCIAN con el MISMO código de 4 dígitos (sin agregaciones ni promedios).
+  aranceles_por_codigo_identico = TRUE,
+
+  # D3. Producción industrial de EE.UU. (G.17). El archivo NO contiene una serie nacional total,
+  #     solo series por industria. Opciones independientes:
+  #     - subsector: asigna a cada rama la serie G.17 del subsector NAICS de 3 dígitos idéntico.
+  #     - rama: asigna la serie G.17 con código NAICS de 4 dígitos idéntico (solo donde existe).
+  ip_eeuu_subsector_codigo_identico = TRUE,
+  ip_eeuu_rama_codigo_identico      = TRUE,
+
+  # D4. Calcular el valor real de la producción (decisión 2 de docs/notas_metodologicas.md):
+  #     valor nominal EMIM / (INPP del subsector / 100).
+  calcular_valor_produccion_real = TRUE,
+
+  # D5. Tipo de cambio FIX: los ceros de ene-oct 1991 son "sin dato" (notas metodológicas, sección 5).
+  tc_ceros_como_faltantes = TRUE,
+
+  # D6. VIX diario -> mensual. No hay regla acordada (pregunta 4 de las notas metodológicas).
+  #     NA = no se integra. Opciones: "promedio_mensual" o "ultimo_dato_del_mes".
+  vix_regla_mensual = NA_character_,
+
+  # D7. World Uncertainty Index: países cuyas series (WUI, WTUI, WPUI) se integran como variables
+  #     comunes, y si se incluye el promedio mundial ponderado por PIB (hojas F1-F3).
+  wui_paises = c("MEX", "USA"),
+  wui_incluir_promedio_mundial = TRUE,
+
+  # D8. EMIM: descartar los meses que la fuente marca con "-" en TODAS las celdas (aún no publicados).
+  emim_excluir_meses_no_publicados = TRUE
+)
+
+# ---- Validación de los valores de las decisiones -----------------------------------
+exigir(all(decisiones$universo_llaves %in% c("MX_PROD_01", "MX_EXP_01", "MX_ARAN_01")) &&
+         "MX_PROD_01" %in% decisiones$universo_llaves,
+       "decisiones$universo_llaves solo admite 'MX_PROD_01', 'MX_EXP_01' y 'MX_ARAN_01', y debe incluir ",
+       "la EMIM ('MX_PROD_01'), que es la variable central. Corrija el bloque 'decisiones'.")
+exigir(!("MX_ARAN_01" %in% decisiones$universo_llaves) || isTRUE(decisiones$aranceles_por_codigo_identico),
+       "Decisión inconsistente: 'MX_ARAN_01' está en universo_llaves, pero aranceles_por_codigo_identico = FALSE. ",
+       "¿Quiere integrar los aranceles del Census? Si no, quite 'MX_ARAN_01' de universo_llaves.")
+exigir(is.na(decisiones$vix_regla_mensual) ||
+         decisiones$vix_regla_mensual %in% c("promedio_mensual", "ultimo_dato_del_mes"),
+       "decisiones$vix_regla_mensual debe ser NA, 'promedio_mensual' o 'ultimo_dato_del_mes'. ",
+       "¿Con qué regla quiere convertir el VIX diario a mensual?")
+for (nm in c("aranceles_por_codigo_identico", "ip_eeuu_subsector_codigo_identico",
+             "ip_eeuu_rama_codigo_identico", "calcular_valor_produccion_real",
+             "tc_ceros_como_faltantes", "wui_incluir_promedio_mundial",
+             "emim_excluir_meses_no_publicados")) {
+  exigir(isTRUE(decisiones[[nm]]) || isFALSE(decisiones[[nm]]),
+         "decisiones$", nm, " debe ser TRUE o FALSE.")
+}
+
+si_no <- function(x) if (isTRUE(x)) "Sí" else "No"
+tabla_decisiones <- tribble(
+  ~id, ~decision, ~valor_actual, ~por_que_requiere_revision,
+  "D1", "Fuentes que definen las filas mes-rama del panel", paste(decisiones$universo_llaves, collapse = ", "),
+  "Define el periodo del panel: con el Census, las ramas empiezan en 2013-01; sin él, en 2018-01 (EMIM).",
+  "D2", "Aranceles del Census por identidad de código NAICS 4 = SCIAN 4", si_no(decisiones$aranceles_por_codigo_identico),
+  "NAICS (EE.UU.) y SCIAN (México) coinciden en código, pero no se ha verificado que coincidan en definición rama por rama; el Census clasifica productos, no establecimientos.",
+  "D3a", "Producción EE.UU. (G.17) del subsector NAICS 3 idéntico", si_no(decisiones$ip_eeuu_subsector_codigo_identico),
+  "El G.17 no trae serie nacional total. La serie del subsector se repite entre las ramas del mismo subsector.",
+  "D3b", "Producción EE.UU. (G.17) de la rama NAICS 4 idéntica", si_no(decisiones$ip_eeuu_rama_codigo_identico),
+  "Solo existe para parte de las ramas; en el resto queda NA. No se agregan series para completar.",
+  "D4", "Calcular valor real de producción (deflactado con INPP del subsector)", si_no(decisiones$calcular_valor_produccion_real),
+  "Decisión acordada en las notas metodológicas; el INPP es de mercancías finales y su base efectiva es jul-2019=100.",
+  "D5", "Ceros del tipo de cambio FIX como faltantes", si_no(decisiones$tc_ceros_como_faltantes),
+  "Los ceros de ene-oct 1991 no son valores reales. Quedan fuera del panel en cualquier caso.",
+  "D6", "Regla para convertir el VIX diario a mensual", ifelse(is.na(decisiones$vix_regla_mensual), "NA (no se integra)", decisiones$vix_regla_mensual),
+  "No hay una regla acordada. Sin regla, el VIX se limpia y documenta pero no entra a la base.",
+  "D7", "Países de la WUI/WTUI/WPUI y promedio mundial", paste0(paste(decisiones$wui_paises, collapse = ", "), "; promedio mundial: ", si_no(decisiones$wui_incluir_promedio_mundial)),
+  "Las notas acuerdan usar la WTUI (hoja T6), pero no dicen de qué país. Se integran MEX y USA para no elegir por usted.",
+  "D8", "Excluir meses EMIM no publicados ('-')", si_no(decisiones$emim_excluir_meses_no_publicados),
+  "Son celdas sin información (ago-dic 2026); conservarlas crearía filas vacías."
+)
+for (i in seq_len(nrow(tabla_decisiones))) {
+  revisar("D", paste("Decisión", tabla_decisiones$id[i]), tabla_decisiones$decision[i],
+          paste0("Valor: ", tabla_decisiones$valor_actual[i], ". ", tabla_decisiones$por_que_requiere_revision[i]))
+}
+tabla(tabla_decisiones, "Decisiones vigentes en esta ejecución", ancho_texto = 300)
+```
+
+## Archivos de entrada y salida
+
+Lista explícita de archivos (no se depende del orden en que el sistema los devuelva). Los originales **solo se leen**; el único archivo que se escribe es el Excel en `data/processed/`.
+
+```{r rutas}
+fuentes <- tribble(
+  ~id,          ~ruta,                                                                   ~contenido,
+  "MX_PROD_01", "data/raw/produccion_mexico/inegi_emim_valores_rama_mensual.xlsx",       "EMIM (INEGI): personal, horas, valor de producción y ventas",
+  "MX_EXP_01",  "data/raw/exportaciones/exportaciones_mex_scian_mensual.xlsx",           "Exportaciones de México por clase SCIAN (Banxico, Comext)",
+  "MX_ARAN_01", "data/raw/aranceles/aranceles_mex_naics4.csv",                           "Importaciones de EE.UU. desde México y aranceles (Census)",
+  "MX_ARAN_02", "data/interim/aranceles/tasa_efectiva_mex_naics4.csv",                   "Tasa efectiva en formato ancho (derivado de MX_ARAN_01)",
+  "US_PROD_01", "data/raw/produccion_estados_unidos/ip_naics_sa.csv",                    "Producción industrial de EE.UU. (Fed G.17), SA",
+  "US_PROD_02", "data/raw/produccion_estados_unidos/ip_naics_series.csv",                "Catálogo de series G.17",
+  "INC_01",     "data/raw/incertidumbre/tpu_caldara_iacoviello.xlsx",                    "TPU (Caldara, Iacoviello et al.)",
+  "INC_02",     "data/raw/incertidumbre/wui_ahir_bloom_furceri_2026_08.xlsx",            "WUI / WTUI / WPUI (Ahir, Bloom y Furceri)",
+  "INC_03",     "data/raw/incertidumbre/epu_mexico_baker_bloom_davis.xlsx",              "EPU México (Baker, Bloom y Davis)",
+  "MACRO_01",   "data/raw/controles_macroeconomicos/banxico_tipo_cambio_fix_mensual.xlsx", "Tipo de cambio FIX, promedio mensual (Banxico)",
+  "MACRO_02",   "data/raw/controles_macroeconomicos/fred_vix_diario.csv",                "VIX diario (CBOE vía FRED)",
+  "PRECIOS_01", "data/raw/precios/inegi_inpp_origen_scian_mensual.xlsx",                 "INPP por origen SCIAN (INEGI)",
+  "DOC_CORR",   "docs/correspondencia_rama_inpp.csv",                                    "Correspondencia rama EMIM -> serie INPP del subsector",
+  "DOC_INV",    "docs/inventario_fuentes.csv",                                           "Inventario de fuentes (huellas SHA-256)"
+) %>% mutate(indispensable = TRUE)
+
+ruta <- function(id) {
+  r <- fuentes$ruta[fuentes$id == id]
+  exigir(length(r) == 1, "No existe la fuente '", id, "' en la tabla 'fuentes'.")
+  here::here(r)
+}
+
+DIR_PROCESADOS   <- here::here("data", "processed")
+RUTA_EXCEL_FINAL <- file.path(DIR_PROCESADOS, "base_incertidumbre_comercial_mexico.xlsx")
+cat("**Archivo de salida:** `", sub(paste0(RAIZ, "/"), "", RUTA_EXCEL_FINAL, fixed = TRUE), "`\n\n", sep = "")
+if (file.exists(RUTA_EXCEL_FINAL)) {
+  aviso(paste0("Ya existe un Excel de una ejecución anterior (", format(file.mtime(RUTA_EXCEL_FINAL), "%Y-%m-%d %H:%M"),
+               "). Solo se sobrescribirá si esta ejecución pasa todas las validaciones críticas."), "info")
+}
+```
+
+# Inspección de los archivos originales
+
+## Checkpoint 1: archivos de entrada
+
+Se verifica que cada archivo exista, se mide su tamaño, se identifican sus hojas y se prueba su lectura. También se calcula su huella MD5 (para comprobar al final que los originales no cambiaron durante la ejecución) y, si está instalado el paquete `digest`, se compara su SHA-256 con la registrada en `docs/inventario_fuentes.csv`.
+
+```{r checkpoint-1}
+titulo_checkpoint("CHECKPOINT 1 · Archivos de entrada")
+
+inventario <- if (file.exists(ruta("DOC_INV"))) leer_csv_texto(ruta("DOC_INV")) else NULL
+hay_digest <- requireNamespace("digest", quietly = TRUE)
+
+cp1 <- pmap_dfr(fuentes, function(id, ruta, contenido, indispensable) {
+  p <- here::here(ruta)
+  existe <- file.exists(p)
+  formato <- tolower(tools::file_ext(p))
+  hojas <- NA_character_; n_hojas <- NA_integer_; lectura <- "no evaluada"
+  if (existe) {
+    lectura <- tryCatch({
+      if (formato == "xlsx") {
+        h <- readxl::excel_sheets(p); hojas <- paste(h, collapse = ", "); n_hojas <- length(h)
+        invisible(readxl::read_excel(p, sheet = h[1], n_max = 3, col_names = FALSE,
+                                     .name_repair = reparar_nombres))
+      } else {
+        invisible(readr::read_lines(p, n_max = 3))
+      }
+      "correcta"
+    }, error = function(e) paste("ERROR:", conditionMessage(e)))
+  }
+  sha_inv <- if (!is.null(inventario)) inventario$sha256[inventario$nombre_organizado == ruta] else character()
+  sha_ok <- NA
+  if (existe && hay_digest && length(sha_inv) == 1 && !is.na(sha_inv)) {
+    sha_ok <- identical(digest::digest(file = p, algo = "sha256"), sha_inv)
+  }
+  tibble(id = id, archivo = basename(ruta), ruta = ruta, existe = existe,
+         tamano_kb = if (existe) round(file.size(p) / 1024, 1) else NA_real_,
+         formato = formato, n_hojas = n_hojas, hojas = hojas, lectura = lectura,
+         md5 = if (existe) unname(tools::md5sum(p)) else NA_character_,
+         sha256_igual_inventario = sha_ok, contenido = contenido)
+})
+
+for (i in seq_len(nrow(cp1))) {
+  f <- cp1[i, ]
+  registrar("CP1", f$id, "El archivo existe", f$existe, f$ruta)
+  if (f$existe) {
+    registrar("CP1", f$id, "El archivo se puede leer", f$lectura == "correcta", f$lectura)
+    if (!startsWith(f$id, "DOC_") && hay_digest) {
+      if (is.na(f$sha256_igual_inventario)) {
+        revisar("CP1", f$id, "Huella SHA-256 igual a la del inventario",
+                "No evaluada: el archivo no tiene huella en docs/inventario_fuentes.csv.")
+      } else {
+        registrar("CP1", f$id, "Huella SHA-256 igual a la del inventario", f$sha256_igual_inventario,
+                  if (f$sha256_igual_inventario) "El archivo es el mismo que se inventarió."
+                  else "El archivo cambió desde que se inventarió (¿nueva descarga?). Revise el inventario.",
+                  si_falla = "REVISAR")
+      }
+    }
+  }
+}
+if (!hay_digest) {
+  revisar("CP1", "Todas", "Huella SHA-256 igual a la del inventario",
+          "No evaluada: instale el paquete 'digest' (install.packages(\"digest\")) para comparar los archivos con el inventario.")
+}
+md5_inicio <- setNames(cp1$md5, cp1$id)
+
+tabla(select(cp1, -md5, -contenido), "Archivos de entrada", ancho_texto = 150)
+cerrar_checkpoint("CP1", "archivos de entrada")
+```
+
+## Lectura cruda de todas las fuentes
+
+Todas las hojas de datos se leen **como texto**, sin que R adivine tipos. Así ninguna celda se pierde por una conversión automática: más adelante cada columna se convierte explícitamente y se cuentan las celdas que no se pudieron convertir.
+
+```{r lectura-cruda}
+crudos <- list()
+crudos$emim        <- leer_texto(ruta("MX_PROD_01"), "Tabulado")
+crudos$expo_datos  <- leer_texto(ruta("MX_EXP_01"), "Datos")
+crudos$expo_td     <- leer_texto(ruta("MX_EXP_01"), "TD")
+crudos$expo_auto   <- leer_texto(ruta("MX_EXP_01"), "Autopartes")
+crudos$census      <- leer_csv_texto(ruta("MX_ARAN_01"))
+crudos$aran2       <- leer_csv_texto(ruta("MX_ARAN_02"))
+crudos$ip_sa       <- leer_csv_texto(ruta("US_PROD_01"))
+crudos$ip_cat      <- leer_csv_texto(ruta("US_PROD_02"))
+hojas_tpu <- readxl::excel_sheets(ruta("INC_01"))
+exigir(all(c("ReadMe", "Series_description", "TPU_MONTHLY", "TPU_QUARTERLY", "TPU_DAILY") %in% hojas_tpu),
+       "INC_01 (TPU): no están todas las hojas esperadas. Hojas encontradas: ", paste(hojas_tpu, collapse = ", "))
+crudos$tpu_readme  <- leer_texto(ruta("INC_01"), "ReadMe")
+crudos$tpu_desc    <- leer_texto(ruta("INC_01"), "Series_description")
+crudos$tpu_m       <- leer_texto(ruta("INC_01"), "TPU_MONTHLY")
+crudos$tpu_q       <- leer_texto(ruta("INC_01"), "TPU_QUARTERLY")
+crudos$tpu_d       <- leer_texto(ruta("INC_01"), "TPU_DAILY")
+hojas_wui <- readxl::excel_sheets(ruta("INC_02"))
+exigir(all(c("T0", "T1", "T5", "T6", "T7", "F1", "F2", "F3") %in% hojas_wui),
+       "INC_02 (WUI): no están todas las hojas esperadas. Hojas encontradas: ", paste(hojas_wui, collapse = ", "))
+crudos$wui <- set_names(map(hojas_wui, ~ leer_texto(ruta("INC_02"), .x)), hojas_wui)
+hojas_epu <- readxl::excel_sheets(ruta("INC_03"))
+exigir(length(hojas_epu) == 1, "INC_03 (EPU): se esperaba una sola hoja y hay ", length(hojas_epu), ": ",
+       paste(hojas_epu, collapse = ", "), ". Indique cuál contiene el índice.")
+crudos$epu  <- leer_texto(ruta("INC_03"), hojas_epu[1])
+crudos$tc   <- leer_texto(ruta("MACRO_01"), readxl::excel_sheets(ruta("MACRO_01"))[1])
+crudos$vix  <- leer_csv_texto(ruta("MACRO_02"))
+crudos$inpp <- leer_texto(ruta("PRECIOS_01"), "INPP")
+crudos$corr <- leer_csv_texto(ruta("DOC_CORR"))
+
+tabla(tibble(objeto = names(crudos),
+             filas = map_int(crudos, ~ if (is.data.frame(.x)) nrow(.x) else NA_integer_),
+             columnas = map_int(crudos, ~ if (is.data.frame(.x)) ncol(.x) else NA_integer_),
+             detalle = map_chr(crudos, ~ if (is.data.frame(.x)) "hoja/archivo" else paste(length(.x), "hojas"))),
+      "Objetos leídos (lectura cruda, sin transformar)")
+```
+
+## Checkpoint 2: estructura y contenido de las fuentes
+
+Para cada fuente se muestran las dimensiones leídas, los nombres de columna, un perfil de columnas (celdas con contenido, vacías y porcentaje convertible a número), las primeras y últimas filas, y los hallazgos de estructura que condicionan la limpieza. El rango temporal exacto de cada fuente se calcula en la sección 3, después de convertir las fechas.
+
+### MX_PROD_01 · EMIM (INEGI)
+
+**Qué representa cada fila:** una combinación *variable × unidad SCIAN* (sector 31-33, subsector de 3 dígitos, rama de 4 o clase de 6). **Cada columna** a partir de la cuarta es un mes. El encabezado es doble (fila de año y fila de mes en texto). Las cuatro variables están apiladas en vertical; al final hay notas al pie. Formato **ancho**.
+
+```{r cp2-emim}
+titulo_checkpoint("CHECKPOINT 2 · Estructura de las fuentes")
+inspeccionar(crudos$emim, "EMIM · hoja Tabulado", n_filas = 10, n_cols = 6)
+e <- crudos$emim
+f_hdr <- which(e$c1 == "Variable" & e$c2 == "Tipo de dato")
+registrar("CP2", "MX_PROD_01", "Se encuentran dos filas de encabezado consecutivas (año / mes)",
+          length(f_hdr) == 2 && isTRUE(diff(f_hdr) == 1),
+          sprintf("Filas de encabezado detectadas: %s", paste(f_hdr, collapse = ", ")))
+tabla(e %>% filter(!is.na(c2), c2 != "Tipo de dato") %>% count(variable = c1, tipo_dato = c2, name = "filas"),
+      "Filas de datos por variable y tipo de dato")
+cod <- str_extract(e$c3, "^\\S+")
+tabla(tibble(codigo = cod[!is.na(e$c2) & e$c2 == "Dato"]) %>%
+        mutate(nivel = case_when(codigo == "31-33" ~ "sector 31-33", nchar(codigo) == 3 ~ "subsector (3 dígitos)",
+                                 nchar(codigo) == 4 ~ "rama (4 dígitos)", nchar(codigo) == 6 ~ "clase (6 dígitos)",
+                                 TRUE ~ "no reconocido")) %>% count(nivel, name = "filas (4 variables)"),
+      "Filas por nivel de agregación SCIAN (agregados y detalle conviven en la misma tabla)")
+valores <- unlist(e[!is.na(e$c2) & e$c2 == "Dato", -(1:3)], use.names = FALSE)
+tabla(tibble(valor = valores) %>% filter(!is.na(valor), is.na(suppressWarnings(as.numeric(valor)))) %>%
+        count(valor_no_numerico = valor, name = "celdas"),
+      "Celdas de datos no numéricas (códigos de la fuente)")
+notas <- e$c1[is.na(e$c2) & !is.na(e$c1) & e$c1 != "" & seq_len(nrow(e)) > max(f_hdr)]
+tabla(tibble(nota_al_pie = notas), "Notas al pie (no son datos)", ancho_texto = 250)
+```
+
+### MX_EXP_01 · Exportaciones por clase SCIAN (Banxico, Comext)
+
+**Hoja `Datos`:** cada fila es *año × mes × clase SCIAN de 6 dígitos*, en formato **largo**, con valor en pesos y en dólares. La columna `Clase` contiene en realidad la **rama** (4 dígitos). **Hoja `TD`:** tabla dinámica elaborada por el usuario (suma en pesos por mes y rama); se usa solo para verificar la agregación. **Hoja `Autopartes`:** hoja de trabajo del usuario con series de origen no documentado; **no se integra**.
+
+```{r cp2-expo}
+x <- con_encabezado(crudos$expo_datos, 1)
+inspeccionar(x, "Exportaciones · hoja Datos", n_cols = 7)
+esperadas <- c("Tipo de operación", "Año", "Mes", "SCIAN", "Clase", "Valor en pesos", "Valor en dólares")
+registrar("CP2", "MX_EXP_01", "Hoja Datos: columnas esperadas",
+          identical(norm_txt(names(x)), norm_txt(esperadas)),
+          paste("Columnas leídas:", paste(names(x), collapse = ", ")))
+tabla(tibble(anio = x[[2]]) %>% count(anio, name = "filas"), "Filas por año")
+tabla(tibble(anio = x[[2]], mes = x[[3]]) %>% count(anio, mes, name = "clases_con_registro") %>%
+        summarise(meses = n(), min_clases_por_mes = min(clases_con_registro), max_clases_por_mes = max(clases_con_registro)),
+      "Clases con registro por mes (el número varía: no todas las clases exportan todos los meses)")
+inspeccionar(crudos$expo_td, "Exportaciones · hoja TD (tabla dinámica del usuario)", n_cols = 6, max_cols_perfil = 6)
+inspeccionar(crudos$expo_auto, "Exportaciones · hoja Autopartes (hoja de trabajo del usuario)", n_cols = 9, max_cols_perfil = 9)
+revisar("CP2", "MX_EXP_01", "Hoja Autopartes",
+        "Serie derivada de origen no documentado (xparts no coincide con la rama 3363 de Datos; xparts_r_ae parece desestacionalizada). No se integra a la base.")
+```
+
+### MX_ARAN_01 y MX_ARAN_02 · Importaciones de EE.UU. desde México y aranceles (Census)
+
+**MX_ARAN_01:** cada fila es *mes × código NAICS de 4 dígitos*, formato **largo**; valores en dólares corrientes y tasas en proporción (no porcentaje). Incluye códigos no manufactureros (11xx, 21xx, 9xxx). **MX_ARAN_02:** la misma tasa efectiva en formato ancho, generada por el mismo script; se usa solo para verificar consistencia, **no se integra** (sería información duplicada).
+
+```{r cp2-census}
+inspeccionar(crudos$census, "Census · aranceles_mex_naics4.csv", n_cols = 8)
+registrar("CP2", "MX_ARAN_01", "Columnas esperadas",
+          identical(names(crudos$census), c("fecha", "naics", "descripcion", "valor_importado",
+                                            "valor_gravable", "aranceles", "tasa_efectiva", "tasa_gravable")),
+          paste(names(crudos$census), collapse = ", "))
+tabla(crudos$census %>%
+        mutate(tipo = case_when(str_detect(naics, "^3\\d{3}$") ~ "manufacturero (3xxx)",
+                                str_detect(naics, "^1\\d{3}$") ~ "agropecuario (11xx)",
+                                str_detect(naics, "^2\\d{3}$") ~ "minero (21xx)",
+                                str_detect(naics, "^9\\d{3}$") ~ "clasificación especial (9xxx)",
+                                TRUE ~ "otro")) %>%
+        group_by(tipo) %>% summarise(codigos = n_distinct(naics), filas = n(),
+                                     meses_min = min(table(naics)), meses_max = max(table(naics))),
+      "Códigos NAICS por tipo")
+inspeccionar(crudos$aran2, "Census derivado · tasa_efectiva_mex_naics4.csv (formato ancho)", n_cols = 8, max_cols_perfil = 8)
+```
+
+### US_PROD_01 y US_PROD_02 · Producción industrial de EE.UU. (Fed G.17)
+
+**US_PROD_01:** cada fila es un mes y cada columna una serie G.17 (formato **ancho**), índice con ajuste estacional. **US_PROD_02:** catálogo de series con su código NAICS. **Hallazgo clave:** el archivo **no contiene una serie nacional total** (ni total industrial ni total manufacturero); solo series por industria con códigos NAICS heterogéneos (3, 4, 5 o 6 dígitos, rangos como `3361-3`, listas como `311,2` y partes de industria `pt.`).
+
+```{r cp2-g17}
+inspeccionar(crudos$ip_sa, "G.17 · ip_naics_sa.csv", n_cols = 8, max_cols_perfil = 8)
+inspeccionar(crudos$ip_cat, "G.17 · ip_naics_series.csv (catálogo)", n_cols = 3)
+tipo_naics <- function(n) case_when(
+  str_detect(n, "^\\d{3}$") ~ "NAICS 3 dígitos", str_detect(n, "^\\d{4}$") ~ "NAICS 4 dígitos",
+  str_detect(n, "^\\d{2}$") ~ "NAICS 2 dígitos", str_detect(n, "^\\d{5,6}$") ~ "NAICS 5-6 dígitos",
+  str_detect(n, "pt\\.") ~ "parte de industria (pt.)", str_detect(n, "[-,]") ~ "rango o lista de códigos",
+  TRUE ~ "otro")
+tabla(crudos$ip_cat %>% mutate(tipo_codigo = tipo_naics(naics),
+                               manufactura = str_detect(naics, "^3[1-3]")) %>%
+        count(tipo_codigo, manufactura, name = "series"),
+      "Series G.17 por tipo de código NAICS")
+total <- crudos$ip_cat %>% filter(str_detect(norm_txt(descripcion), "^total\\b|^manufacturing\\b|industrial production"))
+registrar("CP2", "US_PROD_02", "¿Existe una serie nacional total (industria o manufactura)?", nrow(total) > 0,
+          if (nrow(total) > 0) paste(total$serie, collapse = ", ")
+          else "No: el archivo solo tiene series por industria. La producción de EE.UU. no puede entrar como variable nacional común.",
+          si_falla = "REVISAR")
+```
+
+### INC_01 · TPU (Caldara, Iacoviello et al.)
+
+Tres hojas de datos con frecuencias distintas: **mensual** (se integra), **trimestral** y **diaria** (no se integran: no hay regla de conversión y la versión mensual ya existe). La hoja `ReadMe` dice que la cobertura es 1985-2020, pero los datos van más allá (ReadMe desactualizado).
+
+```{r cp2-tpu}
+tabla(crudos$tpu_readme %>% filter(!is.na(c1)) %>% select(texto = c1), "Hoja ReadMe", ancho_texto = 200)
+tabla(crudos$tpu_desc %>% filter(!is.na(c1)) %>% select(texto = c1), "Hoja Series_description", ancho_texto = 400)
+inspeccionar(con_encabezado(crudos$tpu_m, 1), "TPU · hoja TPU_MONTHLY", n_cols = 6)
+inspeccionar(con_encabezado(crudos$tpu_q, 1), "TPU · hoja TPU_QUARTERLY", n_cols = 3)
+inspeccionar(con_encabezado(crudos$tpu_d, 1), "TPU · hoja TPU_DAILY", n_cols = 6)
+```
+
+### INC_02 · World Uncertainty Index (Ahir, Bloom y Furceri)
+
+Hojas `T1` (WUI), `T6` (WTUI, comercial) y `T7` (WPUI, política): cada fila es un mes y cada columna un país (código ISO3), formato **ancho**. Las hojas `F1`-`F3` traen el promedio mundial ponderado por PIB (con escala distinta a la de los países) y celdas de texto para gráficas. `T0` describe las hojas; `T5` es el catálogo de países. Nota de la fuente: *"For countries with missing reports, the previous month's value is used"* (arrastre hecho por la fuente, no por este código).
+
+```{r cp2-wui}
+tabla(crudos$wui$T0 %>% filter(!is.na(c1) | !is.na(c2)) %>% select(hoja = c1, descripcion = c2, actualizacion = c4),
+      "Hoja T0 (descripción de hojas)", ancho_texto = 350)
+for (h in c("T1", "T6", "T7")) {
+  inspeccionar(con_encabezado(crudos$wui[[h]], 1), paste("WUI · hoja", h), n_cols = 6, max_cols_perfil = 6)
+}
+inspeccionar(crudos$wui$F2, "WUI · hoja F2 (promedio mundial WTUI y celdas de gráfica)", n_cols = 6, max_cols_perfil = 6)
+t5 <- con_encabezado(crudos$wui$T5, 1)
+tabla(t5 %>% filter(iso_code %in% decisiones$wui_paises), "Países seleccionados en el catálogo T5")
+```
+
+### INC_03 · EPU México (Baker, Bloom y Davis)
+
+Cada fila es un mes (columnas `Year` y `Month` separadas), formato **largo**. `Year` está guardado como texto. La última fila es una nota de la fuente, no un dato.
+
+```{r cp2-epu}
+inspeccionar(crudos$epu, "EPU México", n_cols = 3)
+```
+
+### MACRO_01 · Tipo de cambio FIX (Banxico)
+
+Encabezado de metadatos (título, unidad, periodicidad) y después dos columnas: `Fecha` y `SF17908`. Formato **largo**. Enero-octubre de 1991 vienen en 0 (sin dato).
+
+```{r cp2-tc}
+inspeccionar(crudos$tc, "Tipo de cambio FIX", n_filas = 20, n_cols = 2)
+```
+
+### MACRO_02 · VIX (CBOE vía FRED)
+
+Cada fila es un **día hábil**; los feriados vienen vacíos. Frecuencia **diaria**: no se convierte a mensual sin una regla (decisión D6).
+
+```{r cp2-vix}
+inspeccionar(crudos$vix, "VIX diario", n_cols = 2)
+```
+
+### PRECIOS_01 · INPP por origen SCIAN (INEGI)
+
+Encabezado de metadatos (título, periodo, unidad) y una fila `Fecha` con las claves numéricas de las 43 series. Cada fila de datos es un mes y cada columna una serie (formato **ancho**). `N/E` marca meses anteriores al inicio de cada serie.
+
+```{r cp2-inpp}
+inspeccionar(crudos$inpp, "INPP", n_filas = 14, n_cols = 5, max_cols_perfil = 8)
+```
+
+### DOC_CORR · Correspondencia rama → INPP
+
+Tabla del proyecto que asigna a cada una de las 86 ramas EMIM la serie INPP de su subsector.
+
+```{r cp2-corr}
+inspeccionar(crudos$corr, "correspondencia_rama_inpp.csv", n_cols = 6)
+cerrar_checkpoint("CP2", "estructura de las fuentes")
+```
+
+# Limpieza individual de cada fuente
+
+Cada fuente se limpia por separado, conservando su nivel de agregación original. Las filas o celdas que se descartan se documentan en la tabla de exclusiones con su motivo.
+
+## MX_PROD_01 · EMIM
+
+Pasos: (1) localizar el encabezado doble y convertir *año + nombre del mes* en una fecha; (2) tomar solo el bloque de filas `Dato`; (3) pasar a formato largo; (4) separar el código SCIAN de su nombre e identificar el nivel (sector, subsector, rama, clase); (5) convertir valores a número, distinguiendo `ND` (confidencial), `-` (no publicado) y `NC` (no calculable); (6) homologar nombres de variables con un diccionario explícito; (7) construir la tabla por rama en formato *mes × rama*.
+
+```{r limpieza-emim}
+e <- crudos$emim
+f_hdr <- which(e$c1 == "Variable" & e$c2 == "Tipo de dato")
+exigir(length(f_hdr) == 2 && diff(f_hdr) == 1,
+       "EMIM: no se encontraron las dos filas de encabezado consecutivas ('Variable' / 'Tipo de dato'). ",
+       "Revise si INEGI cambió el formato del tabulado.")
+f_anio <- f_hdr[1]; f_mes <- f_hdr[2]
+anios_hdr <- as.character(unlist(e[f_anio, -(1:3)], use.names = FALSE))
+meses_hdr <- as.character(unlist(e[f_mes,  -(1:3)], use.names = FALSE))
+cols_con_fecha <- which(!is.na(anios_hdr) & !is.na(meses_hdr)) + 3
+cols_sin_fecha <- setdiff(4:ncol(e), cols_con_fecha)
+exigir(length(cols_sin_fecha) == 0 || all(is.na(as.matrix(e[, cols_sin_fecha]))),
+       "EMIM: hay columnas con datos pero sin año/mes en el encabezado: ", paste(cols_sin_fecha, collapse = ", "))
+anio_num <- as.integer(unlist(e[f_anio, cols_con_fecha], use.names = FALSE))
+mes_num  <- unname(MESES_ES[norm_txt(unlist(e[f_mes, cols_con_fecha], use.names = FALSE))])
+exigir(!anyNA(anio_num) && !anyNA(mes_num),
+       "EMIM: no se pudieron interpretar algunos encabezados de año/mes. Meses no reconocidos: ",
+       paste(unique(unlist(e[f_mes, cols_con_fecha])[is.na(mes_num)]), collapse = ", "))
+fechas_emim <- make_date(anio_num, mes_num, 1)
+exigir(!anyDuplicated(fechas_emim) && all(fechas_emim == seq(min(fechas_emim), by = "month", length.out = length(fechas_emim))),
+       "EMIM: las columnas de meses no forman una secuencia mensual consecutiva sin repetidos.")
+
+f_dato <- which(!is.na(e$c2) & e$c2 == "Dato")
+exigir(length(f_dato) > 0 && all(f_dato > f_mes) && all(diff(f_dato) == 1),
+       "EMIM: las filas 'Dato' no forman un bloque contiguo después del encabezado.")
+otros_tipos <- setdiff(unique(e$c2[(f_mes + 1):max(f_dato)]), c("Dato", NA))
+exigir(length(otros_tipos) == 0, "EMIM: aparecen tipos de dato no previstos: ", paste(otros_tipos, collapse = ", "))
+filas_no_dato <- setdiff(seq_len(nrow(e)), c(seq_len(f_mes), f_dato))
+notas_emim <- e$c1[filas_no_dato]
+notas_emim <- notas_emim[!is.na(notas_emim) & notas_emim != ""]
+excluir("MX_PROD_01", f_mes, "Filas de título, fecha de consulta y encabezado doble (no son datos)")
+excluir("MX_PROD_01", length(filas_no_dato), "Filas de notas al pie y filas vacías después del bloque de datos")
+
+dicc_emim <- tribble(
+  ~variable_original,                                                                         ~variable,               ~unidad,
+  "Personal ocupado total (Número de personas)",                                              "emim_personal_ocupado", "Número de personas",
+  "Horas trabajadas por el personal ocupado total (Miles de horas)",                          "emim_horas_trabajadas", "Miles de horas",
+  "Total de valor de producción de los productos elaborados (Miles de pesos corrientes)",     "emim_valor_produccion", "Miles de pesos corrientes",
+  "Total de valor de ventas de los productos elaborados (Miles de pesos corrientes)",         "emim_valor_ventas",     "Miles de pesos corrientes"
+) %>% mutate(clave = norm_txt(variable_original))
+
+bloque <- e[f_dato, c(1:3, cols_con_fecha)]
+names(bloque) <- c("variable_original", "tipo_dato", "unidad_scian", as.character(fechas_emim))
+emim_largo <- bloque %>%
+  mutate(fila_origen = f_dato) %>%
+  pivot_longer(all_of(as.character(fechas_emim)), names_to = "mes", values_to = "valor_txt") %>%
+  mutate(mes = as.Date(mes),
+         variable_original = str_trim(str_remove(variable_original, "^-")),
+         clave = norm_txt(variable_original),
+         codigo = str_extract(unidad_scian, "^\\S+"),
+         nombre = str_trim(str_remove(unidad_scian, "^\\S+\\s*")),
+         nivel = case_when(codigo == "31-33" ~ "sector",
+                           str_detect(codigo, "^\\d{3}$") ~ "subsector",
+                           str_detect(codigo, "^\\d{4}$") ~ "rama",
+                           str_detect(codigo, "^\\d{6}$") ~ "clase",
+                           TRUE ~ NA_character_),
+         valor_txt = str_trim(valor_txt),
+         estatus_celda = case_when(is.na(valor_txt) | valor_txt == "" ~ "vacio",
+                                   valor_txt == "-"  ~ "no_publicado (-)",
+                                   valor_txt == "ND" ~ "confidencial (ND)",
+                                   valor_txt == "NC" ~ "no_calculable (NC)",
+                                   !is.na(suppressWarnings(as.numeric(valor_txt))) ~ "dato",
+                                   TRUE ~ "no_convertible")) %>%
+  left_join(select(dicc_emim, clave, variable, unidad), by = "clave", relationship = "many-to-one")
+emim_largo$valor <- convertir_num(emim_largo$valor_txt, "MX_PROD_01", "valores (todas las variables y niveles)",
+                                  codigos_faltante = c("-", "ND", "NC"))
+
+var_desconocidas <- unique(emim_largo$variable_original[is.na(emim_largo$variable)])
+exigir(length(var_desconocidas) == 0,
+       "EMIM: hay variables que no están en el diccionario 'dicc_emim': ", paste(var_desconocidas, collapse = " | "),
+       ". Agréguelas al diccionario con su nombre homologado y unidad.")
+exigir(!anyNA(emim_largo$nivel), "EMIM: hay códigos SCIAN no reconocidos: ",
+       paste(unique(emim_largo$unidad_scian[is.na(emim_largo$nivel)]), collapse = " | "))
+validar_llave(emim_largo, c("variable", "codigo", "mes"), "MX_PROD_01 (largo, todos los niveles)", "CP3")
+registrar("CP3", "MX_PROD_01", "Celdas no convertibles a número", sum(emim_largo$estatus_celda == "no_convertible") == 0,
+          sprintf("%d celdas", sum(emim_largo$estatus_celda == "no_convertible")))
+
+# ---- Meses no publicados ---------------------------------------------------------------
+por_mes <- emim_largo %>% group_by(mes) %>%
+  summarise(todo_no_publicado = all(estatus_celda == "no_publicado (-)"),
+            alguno_no_publicado = any(estatus_celda == "no_publicado (-)"))
+meses_no_pub <- por_mes$mes[por_mes$todo_no_publicado]
+meses_parcial <- por_mes$mes[por_mes$alguno_no_publicado & !por_mes$todo_no_publicado]
+registrar("CP3", "MX_PROD_01", "Los '-' (no publicado) ocupan meses completos, no celdas sueltas",
+          length(meses_parcial) == 0,
+          if (length(meses_parcial)) paste("Meses con '-' parcial:", paste(fmt_mes(meses_parcial), collapse = ", "))
+          else paste("Meses completos sin publicar:", paste(fmt_mes(meses_no_pub), collapse = ", ")),
+          si_falla = "REVISAR")
+if (decisiones$emim_excluir_meses_no_publicados && length(meses_no_pub) > 0) {
+  excluir("MX_PROD_01", sum(emim_largo$mes %in% meses_no_pub),
+          paste0("Celdas '-' de meses aún no publicados (", paste(fmt_mes(meses_no_pub), collapse = ", "), "), decisión D8"))
+  emim_largo <- filter(emim_largo, !mes %in% meses_no_pub)
+}
+
+# ---- Estatus de las cifras según las notas al pie ------------------------------------------
+mes_de_nota <- function(patron) {
+  txt <- str_subset(notas_emim, regex(patron, ignore_case = TRUE))
+  m <- str_match(txt, regex("a partir de\\s+([A-Za-zÁÉÍÓÚáéíóú]{3})[A-Za-záéíóú]*\\.?\\s+(\\d{4})", ignore_case = TRUE))
+  f <- unique(make_date(as.integer(m[, 3]), unname(MESES_ABR[norm_txt(m[, 2])]), 1))
+  f <- f[!is.na(f)]
+  if (length(f) == 1) f else as.Date(NA)
+}
+f_revisadas    <- mes_de_nota("Cifras revisadas a partir de")
+f_preliminares <- mes_de_nota("Cifras preliminares a partir de")
+registrar("CP3", "MX_PROD_01", "Se identificó en las notas desde cuándo hay cifras revisadas y preliminares",
+          !is.na(f_revisadas) && !is.na(f_preliminares),
+          sprintf("Revisadas desde %s; preliminares desde %s", fmt_mes(f_revisadas), fmt_mes(f_preliminares)),
+          si_falla = "REVISAR")
+
+# ---- Tabla por rama (mes x rama) ---------------------------------------------------------------
+emim_rama_largo <- filter(emim_largo, nivel == "rama")
+nombres_rama <- emim_rama_largo %>% distinct(rama = codigo, rama_nombre = nombre)
+registrar("CP3", "MX_PROD_01", "Cada rama tiene un solo nombre en las cuatro variables",
+          !anyDuplicated(nombres_rama$rama), sprintf("%d ramas, %d pares rama-nombre", n_distinct(nombres_rama$rama), nrow(nombres_rama)))
+emim_rama <- emim_rama_largo %>%
+  select(mes, rama = codigo, variable, valor) %>%
+  pivot_wider(names_from = variable, values_from = valor) %>%
+  select(mes, rama, all_of(dicc_emim$variable))
+emim_nd <- emim_rama_largo %>% filter(estatus_celda == "confidencial (ND)") %>%
+  group_by(mes, rama = codigo) %>%
+  summarise(emim_celdas_nd = paste(sort(variable), collapse = "; "), .groups = "drop")
+emim_rama <- emim_rama %>%
+  left_join(emim_nd, by = c("mes", "rama"), relationship = "one-to-one") %>%
+  mutate(emim_estatus_cifra = case_when(is.na(f_revisadas) | is.na(f_preliminares) ~ NA_character_,
+                                        mes < f_revisadas ~ "definitiva",
+                                        mes < f_preliminares ~ "revisada",
+                                        TRUE ~ "preliminar")) %>%
+  arrange(rama, mes)
+
+validar_fechas_mensuales(emim_rama$mes, "MX_PROD_01 (ramas)")
+validar_llave(emim_rama, c("mes", "rama"), "MX_PROD_01 (ramas)", "CP3")
+registrar("CP3", "MX_PROD_01", "Número de ramas (86 según el inventario)", n_distinct(emim_rama$rama) == 86,
+          sprintf("%d ramas", n_distinct(emim_rama$rama)), si_falla = "REVISAR")
+registrar("CP3", "MX_PROD_01", "Panel de ramas completo (todas las ramas en todos los meses)",
+          nrow(emim_rama) == n_distinct(emim_rama$rama) * n_distinct(emim_rama$mes),
+          sprintf("%d filas = %d ramas × %d meses", nrow(emim_rama), n_distinct(emim_rama$rama), n_distinct(emim_rama$mes)),
+          si_falla = "REVISAR")
+resumir_limpieza("MX_PROD_01", "emim_rama", nrow(e), emim_rama, c("mes", "rama"),
+                 "Variable, Tipo de dato, Sector SCIAN + 1 columna por mes",
+                 "Se pasó de formato ancho (1 fila por variable × unidad SCIAN) a largo; se conservan solo las 86 ramas × 4 variables (sector, subsectores y clases quedan en emim_largo para validación).")
+
+tabla(emim_largo %>% count(nivel, variable, estatus_celda, name = "celdas"), "EMIM: estatus de las celdas por nivel y variable")
+tabla(emim_nd %>% count(rama, emim_celdas_nd, name = "meses") , "EMIM: ramas con valores confidenciales (ND), que quedan como NA")
+tabla(emim_rama %>% count(emim_estatus_cifra, name = "filas mes-rama") , "EMIM: estatus de las cifras")
+```
+
+## MX_EXP_01 · Exportaciones
+
+Pasos: (1) verificar columnas; (2) convertir año y mes a fecha; (3) homologar nombres (`SCIAN` → `clase_scian`, `Clase` → `rama`, porque la columna contiene la rama de 4 dígitos); (4) comprobar que la clase de 6 dígitos empiece con la rama de 4; (5) **agregar de clase a rama sumando** los valores (regla de agregación natural de un flujo: el total de la rama es la suma de sus clases; la propia fuente ya asigna cada clase a su rama). Si alguna clase tuviera un valor faltante, la suma de la rama queda en NA (no se ignoran faltantes).
+
+```{r limpieza-expo}
+x <- con_encabezado(crudos$expo_datos, 1)
+exigir(identical(norm_txt(names(x)), norm_txt(c("Tipo de operación", "Año", "Mes", "SCIAN", "Clase", "Valor en pesos", "Valor en dólares"))),
+       "Exportaciones (hoja Datos): las columnas no son las esperadas. Encontradas: ", paste(names(x), collapse = ", "))
+names(x) <- c("tipo_operacion", "anio", "mes_num", "clase_scian", "rama", "valor_pesos", "valor_usd")
+expo <- x %>%
+  mutate(tipo_operacion = convertir_num(tipo_operacion, "MX_EXP_01", "Tipo de operación"),
+         anio = convertir_num(anio, "MX_EXP_01", "Año"),
+         mes_num = convertir_num(mes_num, "MX_EXP_01", "Mes"),
+         valor_pesos = convertir_num(valor_pesos, "MX_EXP_01", "Valor en pesos"),
+         valor_usd = convertir_num(valor_usd, "MX_EXP_01", "Valor en dólares"),
+         clase_scian = str_trim(clase_scian), rama = str_trim(rama),
+         mes = make_date(anio, mes_num, 1))
+
+registrar("CP3", "MX_EXP_01", "Tipo de operación = 2 (exportaciones) en todas las filas",
+          all(expo$tipo_operacion == 2, na.rm = FALSE),
+          paste("Valores:", paste(unique(expo$tipo_operacion), collapse = ", ")))
+registrar("CP3", "MX_EXP_01", "Clase SCIAN de 6 dígitos y rama de 4 dígitos",
+          all(str_detect(expo$clase_scian, "^\\d{6}$")) && all(str_detect(expo$rama, "^\\d{4}$")),
+          sprintf("%d clases y %d ramas con formato distinto", sum(!str_detect(expo$clase_scian, "^\\d{6}$")),
+                  sum(!str_detect(expo$rama, "^\\d{4}$"))))
+registrar("CP3", "MX_EXP_01", "La clase de 6 dígitos pertenece a la rama declarada (primeros 4 dígitos)",
+          all(substr(expo$clase_scian, 1, 4) == expo$rama),
+          sprintf("%d filas con clase fuera de su rama", sum(substr(expo$clase_scian, 1, 4) != expo$rama)))
+registrar("CP3", "MX_EXP_01", "Valores sin faltantes", !anyNA(expo$valor_pesos) && !anyNA(expo$valor_usd),
+          sprintf("%d NA en pesos, %d NA en dólares", sum(is.na(expo$valor_pesos)), sum(is.na(expo$valor_usd))),
+          si_falla = "REVISAR")
+registrar("CP3", "MX_EXP_01", "Valores no negativos",
+          all(expo$valor_pesos >= 0, na.rm = TRUE) && all(expo$valor_usd >= 0, na.rm = TRUE),
+          sprintf("%d valores negativos", sum(expo$valor_pesos < 0, na.rm = TRUE) + sum(expo$valor_usd < 0, na.rm = TRUE)),
+          si_falla = "REVISAR")
+validar_fechas_mensuales(expo$mes, "MX_EXP_01 (clases)")
+validar_llave(expo, c("mes", "clase_scian"), "MX_EXP_01 (clases)", "CP3")
+
+expo_rama <- expo %>%
+  group_by(mes, rama) %>%
+  summarise(expo_valor_pesos = sum(valor_pesos), expo_valor_usd = sum(valor_usd),
+            expo_n_clases = n(), .groups = "drop") %>%
+  arrange(rama, mes)
+validar_llave(expo_rama, c("mes", "rama"), "MX_EXP_01 (ramas)", "CP3")
+registrar("CP3", "MX_EXP_01", "La agregación conserva el total (suma de clases = suma de ramas)",
+          isTRUE(all.equal(sum(expo$valor_pesos), sum(expo_rama$expo_valor_pesos))) &&
+            isTRUE(all.equal(sum(expo$valor_usd), sum(expo_rama$expo_valor_usd))),
+          sprintf("Total pesos: %s", fmt_num(sum(expo$valor_pesos))))
+registrar("CP3", "MX_EXP_01", "Panel de ramas completo",
+          nrow(expo_rama) == n_distinct(expo_rama$rama) * n_distinct(expo_rama$mes),
+          sprintf("%d filas = %d ramas × %d meses", nrow(expo_rama), n_distinct(expo_rama$rama), n_distinct(expo_rama$mes)),
+          si_falla = "REVISAR")
+resumir_limpieza("MX_EXP_01", "expo (clases)", nrow(x), expo, c("mes", "clase_scian"),
+                 "Tipo de operación, Año, Mes, SCIAN, Clase, Valor en pesos, Valor en dólares",
+                 "Sin eliminación de filas; solo conversión de tipos y fecha.")
+resumir_limpieza("MX_EXP_01", "expo_rama", nrow(expo), expo_rama, c("mes", "rama"),
+                 "(derivado de expo)", "Agregación por suma de clases SCIAN de 6 dígitos a rama de 4 dígitos.")
+tabla(expo_rama %>% group_by(rama) %>% summarise(meses = n(), clases_min = min(expo_n_clases), clases_max = max(expo_n_clases)) %>%
+        filter(clases_min != clases_max),
+      "Ramas cuyo número de clases con registro cambia entre meses (composición variable; revise si le importa)")
+```
+
+## MX_ARAN_01 · Importaciones de EE.UU. desde México y aranceles (Census)
+
+Pasos: (1) convertir tipos; (2) verificar fecha mensual y llave *mes × NAICS*; (3) **recalcular las tasas** a partir de sus componentes para confirmar que el archivo es internamente consistente; (4) separar los códigos manufactureros (`3xxx`) de los no manufactureros, que quedan fuera por la decisión 3 de las notas metodológicas (solo manufacturas). No se agrega ni promedia nada.
+
+```{r limpieza-census}
+exigir(identical(names(crudos$census), c("fecha", "naics", "descripcion", "valor_importado", "valor_gravable",
+                                         "aranceles", "tasa_efectiva", "tasa_gravable")),
+       "Census: las columnas no son las esperadas: ", paste(names(crudos$census), collapse = ", "))
+census <- crudos$census %>%
+  mutate(mes = a_fecha(fecha),
+         valor_importado = convertir_num(valor_importado, "MX_ARAN_01", "valor_importado"),
+         valor_gravable  = convertir_num(valor_gravable,  "MX_ARAN_01", "valor_gravable"),
+         aranceles       = convertir_num(aranceles,       "MX_ARAN_01", "aranceles"),
+         tasa_efectiva   = convertir_num(tasa_efectiva,   "MX_ARAN_01", "tasa_efectiva"),
+         tasa_gravable   = convertir_num(tasa_gravable,   "MX_ARAN_01", "tasa_gravable")) %>%
+  select(mes, naics, descripcion, valor_importado, valor_gravable, aranceles, tasa_efectiva, tasa_gravable)
+validar_fechas_mensuales(census$mes, "MX_ARAN_01", texto_original = crudos$census$fecha)
+validar_llave(census, c("mes", "naics"), "MX_ARAN_01", "CP3")
+registrar("CP3", "MX_ARAN_01", "Cada código NAICS tiene una sola descripción",
+          all(count(distinct(census, naics, descripcion), naics)$n == 1), "")
+
+tasa_e <- if_else(census$valor_importado > 0, census$aranceles / census$valor_importado, NA_real_)
+tasa_g <- if_else(census$valor_gravable  > 0, census$aranceles / census$valor_gravable,  NA_real_)
+igual <- function(a, b) (is.na(a) & is.na(b)) | (!is.na(a) & !is.na(b) & abs(a - b) <= 1e-9 * pmax(1, abs(b)))
+registrar("CP3", "MX_ARAN_01", "tasa_efectiva = aranceles / valor_importado (NA si no hubo importaciones)",
+          all(igual(tasa_e, census$tasa_efectiva)), sprintf("%d filas no coinciden", sum(!igual(tasa_e, census$tasa_efectiva))))
+registrar("CP3", "MX_ARAN_01", "tasa_gravable = aranceles / valor_gravable (NA si valor gravable = 0)",
+          all(igual(tasa_g, census$tasa_gravable)), sprintf("%d filas no coinciden", sum(!igual(tasa_g, census$tasa_gravable))))
+supera <- census %>% filter(valor_gravable > 0, aranceles > valor_gravable)
+revisar("CP3", "MX_ARAN_01", "Aranceles mayores que el valor gravable (compatible con aranceles específicos)",
+        sprintf("%d filas en los códigos %s. No se modifican (decisión 7 de las notas).", nrow(supera),
+                paste(unique(supera$naics), collapse = ", ")))
+
+census_manuf    <- census %>% filter(str_detect(naics, "^3\\d{3}$")) %>% rename(rama = naics)
+census_no_manuf <- census %>% filter(!str_detect(naics, "^3\\d{3}$"))
+excluir("MX_ARAN_01", nrow(census_no_manuf),
+        paste0("Códigos no manufactureros (", n_distinct(census_no_manuf$naics),
+               " códigos 11xx, 21xx, 9xxx): fuera del alcance (solo SCIAN 31-33, decisión 3 de las notas)."))
+validar_fechas_mensuales(census_manuf$mes, "MX_ARAN_01 (manufactura)")
+registrar("CP3", "MX_ARAN_01", "Códigos manufactureros con todos los meses",
+          nrow(census_manuf) == n_distinct(census_manuf$rama) * n_distinct(census_manuf$mes),
+          sprintf("%d filas; %d códigos × %d meses", nrow(census_manuf), n_distinct(census_manuf$rama), n_distinct(census_manuf$mes)),
+          si_falla = "REVISAR")
+resumir_limpieza("MX_ARAN_01", "census_manuf", nrow(crudos$census), census_manuf, c("mes", "rama"),
+                 paste(names(crudos$census), collapse = ", "),
+                 "Se separan los códigos no manufactureros (se conservan en census_no_manuf, no se integran).")
+tabla(census_no_manuf %>% group_by(naics, descripcion) %>% summarise(meses = n(), periodo = rango_txt(mes), .groups = "drop"),
+      "Códigos del Census que NO se integran (no manufactureros)")
+tabla(census_manuf %>% filter(is.na(tasa_efectiva)) %>% count(rama, descripcion, name = "meses_sin_importaciones"),
+      "Códigos manufactureros con meses sin importaciones (tasa efectiva NA)")
+```
+
+## MX_ARAN_02 · Tasa efectiva en formato ancho (solo verificación)
+
+Se comprueba que el archivo derivado sea exactamente la tasa efectiva de MX_ARAN_01 redondeada a 6 decimales. No se integra, para no duplicar información.
+
+```{r limpieza-aran2}
+a2 <- crudos$aran2
+exigir(names(a2)[1] == "fecha", "MX_ARAN_02: la primera columna no es 'fecha'.")
+a2_largo <- a2 %>% pivot_longer(-fecha, names_to = "naics", values_to = "tasa_txt") %>%
+  mutate(mes = a_fecha(fecha), tasa_02 = convertir_num(tasa_txt, "MX_ARAN_02", "tasa efectiva (todas las columnas)"))
+cmp_a2 <- full_join(select(a2_largo, mes, naics, tasa_02), select(census, mes, naics, tasa_efectiva),
+                    by = c("mes", "naics"), relationship = "one-to-one")
+coincide <- (is.na(cmp_a2$tasa_02) & is.na(cmp_a2$tasa_efectiva)) |
+  (!is.na(cmp_a2$tasa_02) & !is.na(cmp_a2$tasa_efectiva) & abs(cmp_a2$tasa_02 - cmp_a2$tasa_efectiva) <= 6e-7)
+registrar("CP3", "MX_ARAN_02", "Es la misma tasa efectiva que MX_ARAN_01 (6 decimales)", all(coincide),
+          sprintf("%d de %d celdas no coinciden. No se integra (duplicado).", sum(!coincide), length(coincide)))
+excluir("MX_ARAN_02", nrow(a2), "Archivo derivado de MX_ARAN_01 (misma información en formato ancho): solo se usa para verificar.")
+```
+
+## US_PROD_01 y US_PROD_02 · Producción industrial de EE.UU. (G.17)
+
+Se pasa a formato largo (*mes × serie*), se unen los metadatos del catálogo y se clasifica cada código NAICS. No se construyen agregados.
+
+```{r limpieza-g17}
+exigir(names(crudos$ip_sa)[1] == "fecha", "G.17: la primera columna de ip_naics_sa.csv no es 'fecha'.")
+exigir(identical(names(crudos$ip_cat), c("serie", "descripcion", "naics")), "G.17: columnas inesperadas en el catálogo.")
+exigir(setequal(names(crudos$ip_sa)[-1], crudos$ip_cat$serie) && !anyDuplicated(crudos$ip_cat$serie),
+       "G.17: las series del archivo de datos y las del catálogo no coinciden.")
+ip_cat <- crudos$ip_cat %>%
+  mutate(tipo_codigo = tipo_naics(naics), manufactura = str_detect(naics, "^3[1-3]"))
+ip_largo <- crudos$ip_sa %>%
+  pivot_longer(-fecha, names_to = "serie", values_to = "indice_txt") %>%
+  mutate(mes = a_fecha(fecha),
+         indice = convertir_num(indice_txt, "US_PROD_01", "índices (todas las series)")) %>%
+  select(mes, serie, indice) %>%
+  left_join(ip_cat, by = "serie", relationship = "many-to-one")
+validar_fechas_mensuales(a_fecha(crudos$ip_sa$fecha), "US_PROD_01", texto_original = crudos$ip_sa$fecha)
+validar_llave(ip_largo, c("mes", "serie"), "US_PROD_01", "CP3")
+cob_ip <- ip_largo %>% filter(!is.na(indice)) %>% group_by(serie) %>%
+  summarise(primer_mes = min(mes), ultimo_mes = max(mes), meses_con_dato = n(), .groups = "drop") %>%
+  mutate(meses_esperados = map2_int(primer_mes, ultimo_mes, ~ length(seq(.x, .y, by = "month"))),
+         huecos_internos = meses_esperados - meses_con_dato)
+registrar("CP3", "US_PROD_01", "Sin huecos internos en las series (entre su primer y último dato)",
+          all(cob_ip$huecos_internos == 0), sprintf("%d series con huecos", sum(cob_ip$huecos_internos > 0)), si_falla = "REVISAR")
+ultimo_general <- max(cob_ip$ultimo_mes)
+revisar("CP3", "US_PROD_01", "Series que terminan antes del último mes del archivo",
+        paste0(sum(cob_ip$ultimo_mes < ultimo_general), " series terminan antes de ", fmt_mes(ultimo_general), ": ",
+               paste(cob_ip$serie[cob_ip$ultimo_mes < ultimo_general], collapse = ", "), ". Se dejan como NA, sin extrapolar."))
+excluir("US_PROD_01", sum(is.na(ip_largo$indice)), "Celdas vacías antes del inicio o después del fin de cada serie (no son datos; se conservan como NA en ip_largo)")
+resumir_limpieza("US_PROD_01", "ip_largo", nrow(crudos$ip_sa), ip_largo, c("mes", "serie"),
+                 "fecha + 1 columna por serie G.17", "Se pasó de ancho (mes × serie) a largo; celdas vacías quedan como NA.")
+tabla(cob_ip %>% left_join(ip_cat, by = "serie") %>% filter(manufactura) %>%
+        count(tipo_codigo, inicio = fmt_mes(primer_mes), fin = fmt_mes(ultimo_mes), name = "series"),
+      "Cobertura de las series manufactureras del G.17 por tipo de código")
+```
+
+## PRECIOS_01 · INPP
+
+Se leen los metadatos (título, periodo, unidad, clave) de cada serie, se identifica el subsector SCIAN desde el título y se pasa a formato largo. `N/E` se trata como faltante (la serie no existe en ese mes).
+
+```{r limpieza-inpp}
+p <- crudos$inpp
+f_fecha <- which(p$c1 == "Fecha")
+f_titulo <- which(norm_txt(p$c1) == "titulo"); f_per <- which(norm_txt(p$c1) == "periodo disponible")
+f_uni <- which(norm_txt(p$c1) == "unidad")
+exigir(length(f_fecha) == 1 && length(f_titulo) == 1 && length(f_uni) == 1 && length(f_per) == 1,
+       "INPP: no se encontraron las filas de metadatos 'Título', 'Periodo disponible', 'Unidad' y 'Fecha'.")
+fila <- function(i) as.character(unlist(p[i, -1], use.names = FALSE))
+inpp_cat <- tibble(id_serie = format(suppressWarnings(as.numeric(fila(f_fecha))), scientific = FALSE, trim = TRUE),
+                   titulo = fila(f_titulo), periodo_declarado = fila(f_per), unidad_declarada = fila(f_uni)) %>%
+  mutate(columna = row_number() + 1,
+         subsector_titulo = str_match(titulo, "31-33 Industrias manufactureras, (\\d{3}) ")[, 2],
+         descripcion_corta = str_remove(titulo, "^.*Por origen, "))
+exigir(!anyNA(inpp_cat$id_serie) && !anyDuplicated(inpp_cat$id_serie), "INPP: claves de serie faltantes o repetidas.")
+datos_inpp <- p[(f_fecha + 1):nrow(p), ]
+vacias <- is.na(datos_inpp$c1)
+excluir("PRECIOS_01", f_fecha, "Filas de metadatos del encabezado")
+excluir("PRECIOS_01", sum(vacias), "Filas vacías al final de la hoja")
+datos_inpp <- datos_inpp[!vacias, ]
+names(datos_inpp) <- c("fecha_txt", inpp_cat$id_serie)
+inpp_largo <- datos_inpp %>%
+  mutate(mes = a_fecha(fecha_txt)) %>%
+  pivot_longer(all_of(inpp_cat$id_serie), names_to = "id_serie", values_to = "valor_txt") %>%
+  mutate(valor = convertir_num(valor_txt, "PRECIOS_01", "índices (todas las series)", codigos_faltante = "N/E")) %>%
+  select(mes, id_serie, valor)
+validar_fechas_mensuales(a_fecha(datos_inpp$fecha_txt), "PRECIOS_01", texto_original = datos_inpp$fecha_txt)
+validar_llave(inpp_largo, c("mes", "id_serie"), "PRECIOS_01", "CP3")
+jul19 <- inpp_largo %>% filter(mes == as.Date("2019-07-01"), !is.na(valor))
+registrar("CP3", "PRECIOS_01", "Base efectiva: todas las series valen 100 en julio de 2019",
+          nrow(jul19) > 0 && all(abs(jul19$valor - 100) < 1e-6),
+          paste0("El título dice '", str_extract(inpp_cat$unidad_declarada[1], "Base.*"),
+                 "', pero los datos valen 100 en 2019-07. Se documenta como base efectiva jul-2019=100 (por confirmar con INEGI)."),
+          si_falla = "REVISAR")
+revisar("CP3", "PRECIOS_01", "Base declarada vs. base efectiva",
+        "La unidad declarada (Base julio 2025=100) no coincide con los datos (100 en julio 2019). Pregunta 2 de las notas metodológicas.")
+resumir_limpieza("PRECIOS_01", "inpp_largo", nrow(p), inpp_largo, c("mes", "id_serie"),
+                 "Fecha + 43 columnas identificadas por clave", "Se retiran metadatos y filas vacías; formato ancho a largo.")
+tabla(inpp_cat %>% filter(!is.na(subsector_titulo)) %>%
+        left_join(inpp_largo %>% filter(!is.na(valor)) %>% group_by(id_serie) %>%
+                    summarise(cobertura = rango_txt(mes)), by = "id_serie") %>%
+        select(id_serie, subsector_titulo, periodo_declarado, cobertura, descripcion_corta),
+      "Series INPP de los 21 subsectores manufactureros", ancho_texto = 140)
+```
+
+## INC_01 · TPU mensual (y versiones trimestral y diaria, solo documentadas)
+
+```{r limpieza-tpu}
+tm <- con_encabezado(crudos$tpu_m, 1)
+exigir(all(c("DATE", "N7", "TPU_RAW", "TPU_SHARE", "TPU") %in% names(tm)),
+       "TPU_MONTHLY: faltan columnas esperadas (DATE, N7, TPU_RAW, TPU_SHARE, TPU). Encontradas: ", paste(names(tm), collapse = ", "))
+extra <- setdiff(names(tm), c("DATE", "N7", "TPU_RAW", "TPU_SHARE", "TPU"))
+exigir(length(extra) == 0 || all(is.na(as.matrix(tm[, extra]))),
+       "TPU_MONTHLY: hay columnas adicionales con contenido: ", paste(extra, collapse = ", "))
+if (length(extra)) excluir("INC_01", length(extra), "Columnas sin nombre y vacías en TPU_MONTHLY")
+tpu <- tm %>% filter(!is.na(DATE)) %>%
+  transmute(mes = a_fecha(DATE),
+            tpu       = convertir_num(TPU,       "INC_01", "TPU"),
+            tpu_share = convertir_num(TPU_SHARE, "INC_01", "TPU_SHARE"),
+            tpu_raw   = convertir_num(TPU_RAW,   "INC_01", "TPU_RAW"),
+            tpu_n7    = convertir_num(N7,        "INC_01", "N7"))
+validar_fechas_mensuales(tpu$mes, "INC_01 (mensual)", texto_original = tm$DATE[!is.na(tm$DATE)])
+validar_llave(tpu, "mes", "INC_01 (mensual)", "CP3")
+registrar("CP3", "INC_01", "TPU = TPU_SHARE × 10,000 (TPU_SHARE es una proporción, aunque el ReadMe diga 'percent share')",
+          isTRUE(all.equal(tpu$tpu, tpu$tpu_share * 1e4, tolerance = 1e-8)),
+          "Confirma la unidad de TPU_SHARE (proporción de artículos) y de TPU (100 = 1% de artículos).", si_falla = "REVISAR")
+registrar("CP3", "INC_01", "TPU_SHARE = TPU_RAW / N7",
+          isTRUE(all.equal(tpu$tpu_share, tpu$tpu_raw / tpu$tpu_n7, tolerance = 1e-8)), "", si_falla = "REVISAR")
+revisar("CP3", "INC_01", "ReadMe desactualizado",
+        paste0("El ReadMe dice 'monthly from 1985-2020'; los datos cubren ", rango_txt(tpu$mes), "."))
+resumir_limpieza("INC_01", "tpu", nrow(tm), tpu, "mes", paste(names(tm), collapse = ", "), "Solo conversión de tipos.")
+
+tq <- con_encabezado(crudos$tpu_q, 1); td_ <- con_encabezado(crudos$tpu_d, 1)
+tpu_trim <- tq %>% filter(!is.na(DATEQ)) %>%
+  transmute(trimestre = DATEQ, tpuq = convertir_num(TPUQ, "INC_01", "TPUQ"),
+            tariffvol = convertir_num(TARIFFVOL, "INC_01", "TARIFFVOL"))
+tpu_diario <- td_ %>% filter(!is.na(DATE)) %>%
+  transmute(fecha = a_fecha(DATE), tpud_index = convertir_num(TPUD_index, "INC_01", "TPUD_index"))
+revisar("CP3", "INC_01", "Versiones trimestral y diaria no integradas",
+        paste0("Trimestral: ", tpu_trim$trimestre[1], " a ", tail(tpu_trim$trimestre, 1),
+               " (TARIFFVOL hasta ", tail(tpu_trim$trimestre[!is.na(tpu_trim$tariffvol)], 1), "). Diaria: ",
+               min(tpu_diario$fecha, na.rm = TRUE), " a ", max(tpu_diario$fecha, na.rm = TRUE),
+               ". Frecuencia distinta a la mensual; no se convierten."))
+excluir("INC_01", nrow(tpu_trim) + nrow(tpu_diario), "Hojas TPU_QUARTERLY y TPU_DAILY: frecuencia no mensual, no se integran (se documentan).")
+```
+
+## INC_02 · WUI, WTUI y WPUI
+
+Se pasan las hojas `T1`, `T6` y `T7` a formato largo (*mes × país*) y se leen los promedios mundiales de `F1`-`F3` (solo las columnas A:B; las demás celdas son texto de gráficas).
+
+```{r limpieza-wui}
+indices_wui <- c(T1 = "WUI", T6 = "WTUI", T7 = "WPUI")
+wui_largo <- imap_dfr(indices_wui, function(indice, hoja) {
+  x <- con_encabezado(crudos$wui[[hoja]], 1)
+  exigir(names(x)[1] == "date", "WUI hoja ", hoja, ": la primera columna no es 'date'.")
+  exigir(all(decisiones$wui_paises %in% names(x)), "WUI hoja ", hoja, ": no están los países ",
+         paste(setdiff(decisiones$wui_paises, names(x)), collapse = ", "))
+  x %>% filter(!is.na(date)) %>% mutate(mes = a_fecha(date)) %>% select(-date) %>%
+    pivot_longer(-mes, names_to = "pais", values_to = "valor_txt") %>%
+    mutate(indice = indice, hoja = hoja,
+           valor = convertir_num(valor_txt, "INC_02", paste0(hoja, " (", indice, ", todos los países)"))) %>%
+    select(indice, hoja, pais, mes, valor)
+})
+for (h in names(indices_wui)) {
+  validar_fechas_mensuales(unique(wui_largo$mes[wui_largo$hoja == h]), paste0("INC_02 (", h, ")"))
+}
+validar_llave(wui_largo, c("indice", "pais", "mes"), "INC_02 (T1, T6, T7)", "CP3")
+
+leer_wui_f <- function(hoja, nombre) {
+  x <- leer_texto(ruta("INC_02"), hoja, rango = readxl::cell_cols("A:B"))
+  f <- which(norm_txt(x$c1) == "date")
+  exigir(length(f) == 1, "WUI hoja ", hoja, ": no se encontró la fila de encabezado 'date'.")
+  d <- x[(f + 1):nrow(x), ] %>% filter(!is.na(c1))
+  tibble(mes = a_fecha(d$c1), valor = convertir_num(d$c2, "INC_02", paste0(hoja, " (", nombre, ")")),
+         indice = nombre, hoja = hoja, encabezado = x$c2[f])
+}
+wui_mundo <- bind_rows(leer_wui_f("F1", "WUI"), leer_wui_f("F2", "WTUI"), leer_wui_f("F3", "WPUI"))
+for (h in c("F1", "F2", "F3")) validar_fechas_mensuales(wui_mundo$mes[wui_mundo$hoja == h], paste0("INC_02 (", h, ")"))
+validar_llave(wui_mundo, c("indice", "mes"), "INC_02 (F1-F3)", "CP3")
+
+ceros <- wui_largo %>% filter(pais %in% decisiones$wui_paises) %>% group_by(indice, pais) %>%
+  summarise(meses = n(), meses_en_cero = sum(valor == 0, na.rm = TRUE), pct_cero = round(100 * meses_en_cero / meses, 1),
+            faltantes = sum(is.na(valor)), .groups = "drop")
+for (i in seq_len(nrow(ceros))) {
+  if (ceros$pct_cero[i] > 25) {
+    revisar("CP3", "INC_02", paste0(ceros$indice[i], " ", ceros$pais[i], ": proporción de meses en cero"),
+            sprintf("%d de %d meses valen 0 (%.1f%%). Son ceros de la fuente (conteos bajos de palabras), no faltantes; no se modifican.",
+                    ceros$meses_en_cero[i], ceros$meses[i], ceros$pct_cero[i]))
+  }
+}
+revisar("CP3", "INC_02", "Arrastre de valores hecho por la fuente",
+        "Nota 2 de la hoja T0: 'For countries with missing reports, the previous month's value is used'. No es una imputación de este código.")
+revisar("CP3", "INC_02", "Escala de los promedios mundiales (F1-F3)",
+        "Los promedios ponderados por PIB tienen una escala distinta a la de las series por país (según T0). No se reescalan.")
+resumir_limpieza("INC_02", "wui_largo", sum(map_int(crudos$wui[names(indices_wui)], nrow)), wui_largo, c("indice", "pais", "mes"),
+                 "date + 71 columnas de país (por hoja)", "Tres hojas anchas apiladas en formato largo (mes × país × índice).")
+resumir_limpieza("INC_02", "wui_mundo", sum(map_int(crudos$wui[c("F1", "F2", "F3")], nrow)), wui_mundo, c("indice", "mes"),
+                 "date + promedio ponderado (+ celdas de gráfica)", "Solo columnas A:B; se descartan celdas de texto de las gráficas.")
+tabla(ceros, "Meses en cero por índice y país seleccionado")
+```
+
+## INC_03 · EPU México
+
+```{r limpieza-epu}
+ep <- crudos$epu
+exigir(identical(norm_txt(unlist(ep[1, 1:3], use.names = FALSE)), norm_txt(c("Year", "Month", "Mexican Policy Uncertainty Index"))),
+       "EPU: el encabezado no es Year / Month / Mexican Policy Uncertainty Index.")
+ep <- con_encabezado(ep, 1)
+names(ep)[1:3] <- c("anio", "mes_num", "epu")
+es_nota <- !str_detect(coalesce(ep$anio, ""), "^\\d{4}$")
+excluir("INC_03", sum(es_nota), paste0("Filas que no son datos (nota de la fuente): ",
+                                       paste(substr(ep$anio[es_nota], 1, 60), collapse = " | ")))
+epu <- ep[!es_nota, ] %>%
+  transmute(mes = make_date(as.integer(anio), as.integer(convertir_num(mes_num, "INC_03", "Month")), 1),
+            epu_mex = convertir_num(epu, "INC_03", "Mexican Policy Uncertainty Index"))
+validar_fechas_mensuales(epu$mes, "INC_03")
+validar_llave(epu, "mes", "INC_03", "CP3")
+resumir_limpieza("INC_03", "epu", nrow(crudos$epu), epu, "mes", "Year, Month, Mexican Policy Uncertainty Index",
+                 "Se retiran el encabezado y la nota de la fuente.")
+```
+
+## MACRO_01 · Tipo de cambio FIX
+
+```{r limpieza-tc}
+tcr <- crudos$tc
+f_h <- which(tcr$c1 == "Fecha" & tcr$c2 == "SF17908")
+exigir(length(f_h) == 1, "Tipo de cambio: no se encontró la fila de encabezado 'Fecha' / 'SF17908'.")
+tc_meta <- tcr[seq_len(f_h - 1), ] %>% filter(!is.na(c1), !is.na(c2)) %>% select(campo = c1, valor = c2)
+tc_datos <- tcr[(f_h + 1):nrow(tcr), ] %>% filter(!is.na(c1))
+excluir("MACRO_01", f_h, "Filas de metadatos del encabezado de Banxico")
+tc <- tibble(mes = a_fecha(tc_datos$c1), tc_fix = convertir_num(tc_datos$c2, "MACRO_01", "SF17908"))
+validar_fechas_mensuales(tc$mes, "MACRO_01", texto_original = tc_datos$c1)
+validar_llave(tc, "mes", "MACRO_01", "CP3")
+ceros_tc <- tc$mes[!is.na(tc$tc_fix) & tc$tc_fix == 0]
+if (decisiones$tc_ceros_como_faltantes && length(ceros_tc) > 0) {
+  tc$tc_fix[tc$mes %in% ceros_tc] <- NA_real_
+  excluir("MACRO_01", length(ceros_tc), paste0("Ceros convertidos a NA (sin dato, decisión D5): ", rango_txt(ceros_tc)))
+}
+registrar("CP3", "MACRO_01", "Sin ceros ni valores no positivos tras la limpieza",
+          all(tc$tc_fix > 0, na.rm = TRUE), sprintf("%d valores <= 0", sum(tc$tc_fix <= 0, na.rm = TRUE)), si_falla = "REVISAR")
+resumir_limpieza("MACRO_01", "tc", nrow(tcr), tc, "mes", "Fecha, SF17908", "Se retiran metadatos; ceros de 1991 a NA (D5).")
+tabla(tc_meta, "Metadatos de la serie (Banxico)", ancho_texto = 200)
+```
+
+## MACRO_02 · VIX diario
+
+```{r limpieza-vix}
+exigir(identical(names(crudos$vix), c("observation_date", "VIXCLS")), "VIX: columnas inesperadas.")
+vix <- crudos$vix %>% transmute(fecha = a_fecha(observation_date),
+                                vix = convertir_num(VIXCLS, "MACRO_02", "VIXCLS", codigos_faltante = "."))
+registrar("CP3", "MACRO_02", "Fechas diarias válidas y únicas", !anyNA(vix$fecha) && !anyDuplicated(vix$fecha),
+          sprintf("%s a %s", min(vix$fecha), max(vix$fecha)))
+registrar("CP3", "MACRO_02", "Todo valor no vacío se convirtió a número (los vacíos son feriados)",
+          all(!is.na(vix$vix) | is.na(crudos$vix$VIXCLS) | crudos$vix$VIXCLS == "."),
+          sprintf("%d días hábiles sin dato; se conservan como NA", sum(is.na(vix$vix))))
+vix_mensual <- NULL
+if (is.na(decisiones$vix_regla_mensual)) {
+  revisar("CP3", "MACRO_02", "VIX no integrado a la base",
+          "Frecuencia diaria y sin regla de conversión acordada (decisión D6). Para integrarlo, defina decisiones$vix_regla_mensual.")
+} else {
+  vix_mensual <- vix %>% filter(!is.na(vix)) %>% mutate(mes = floor_date(fecha, "month")) %>%
+    group_by(mes) %>% arrange(fecha, .by_group = TRUE) %>%
+    summarise(valor = if (decisiones$vix_regla_mensual == "promedio_mensual") mean(vix) else last(vix),
+              vix_dias_con_dato = n(), .groups = "drop") %>%
+    rename(!!paste0("vix_", decisiones$vix_regla_mensual) := valor)
+  revisar("CP3", "MACRO_02", "VIX convertido a mensual", paste("Regla aplicada:", decisiones$vix_regla_mensual,
+                                                              "(decisión D6), con los días que tienen dato."))
+  ultimo <- max(vix$fecha)
+  if (ultimo < ceiling_date(ultimo, "month") - 1) {
+    revisar("CP3", "MACRO_02", "Último mes del VIX incompleto",
+            paste0("El último dato es ", ultimo, "; el mes ", fmt_mes(ultimo), " no está completo."))
+  }
+}
+resumir_limpieza("MACRO_02", "vix (diario)", nrow(crudos$vix), vix, "fecha", "observation_date, VIXCLS", "Solo conversión de tipos.")
+```
+
+## DOC_CORR · Correspondencia rama → INPP
+
+```{r limpieza-corr}
+corr <- crudos$corr
+exigir(all(c("rama_scian", "nombre_rama", "subsector_scian", "id_serie_inpp") %in% names(corr)),
+       "correspondencia_rama_inpp.csv: faltan columnas esperadas.")
+corr <- corr %>% mutate(across(c(rama_scian, subsector_scian, id_serie_inpp), str_trim))
+validar_llave(corr, "rama_scian", "DOC_CORR", "CP3")
+registrar("CP3", "DOC_CORR", "El subsector de la tabla = primeros 3 dígitos de la rama",
+          all(corr$subsector_scian == substr(corr$rama_scian, 1, 3)), "")
+registrar("CP3", "DOC_CORR", "Todas las series asignadas existen en el INPP",
+          all(corr$id_serie_inpp %in% inpp_cat$id_serie),
+          paste("No encontradas:", paste(setdiff(corr$id_serie_inpp, inpp_cat$id_serie), collapse = ", ")))
+chk_sub <- corr %>% left_join(select(inpp_cat, id_serie, subsector_titulo), by = c("id_serie_inpp" = "id_serie"))
+registrar("CP3", "DOC_CORR", "La serie INPP asignada corresponde al subsector de la rama (según su título)",
+          all(chk_sub$subsector_titulo == chk_sub$subsector_scian, na.rm = FALSE),
+          sprintf("%d ramas con serie de otro subsector", sum(chk_sub$subsector_titulo != chk_sub$subsector_scian, na.rm = TRUE)))
+```
+
+## Checkpoint 3: resumen de la limpieza individual
+
+```{r checkpoint-3}
+titulo_checkpoint("CHECKPOINT 3 · Limpieza individual")
+tabla(.reg$limpieza, "Filas y columnas antes y después de limpiar, por fuente", ancho_texto = 220)
+tabla(.reg$exclusiones, "Filas o celdas descartadas y motivo (nada se descarta sin quedar aquí)", ancho_texto = 250)
+tabla(.reg$conversiones, "Conversión de texto a número por fuente y variable", max_filas = 200)
+registrar("CP3", "Todas", "Celdas con contenido que no pudieron convertirse a número",
+          sum(.reg$conversiones$no_convertibles) == 0,
+          sprintf("%d celdas (ver tabla de conversión)", sum(.reg$conversiones$no_convertibles)))
+tabla(bind_rows(
+  faltantes_por_variable(emim_rama, dicc_emim$variable) %>% mutate(fuente = "MX_PROD_01"),
+  faltantes_por_variable(expo_rama, c("expo_valor_pesos", "expo_valor_usd")) %>% mutate(fuente = "MX_EXP_01"),
+  faltantes_por_variable(census_manuf, c("valor_importado", "valor_gravable", "aranceles", "tasa_efectiva", "tasa_gravable")) %>% mutate(fuente = "MX_ARAN_01"),
+  faltantes_por_variable(tpu, c("tpu", "tpu_share", "tpu_raw", "tpu_n7")) %>% mutate(fuente = "INC_01"),
+  faltantes_por_variable(epu, "epu_mex") %>% mutate(fuente = "INC_03"),
+  faltantes_por_variable(tc, "tc_fix") %>% mutate(fuente = "MACRO_01"),
+  faltantes_por_variable(vix, "vix") %>% mutate(fuente = "MACRO_02 (diario)")
+) %>% relocate(fuente), "Valores faltantes por variable en las fuentes limpias")
+cerrar_checkpoint("CP3", "limpieza individual")
+```
+
+# Validaciones de cada fuente
+
+Comprobaciones de contenido que no dependen de la integración: que los agregados de la EMIM sumen sus componentes, que la agregación de exportaciones coincida con la tabla dinámica del usuario y que el tipo de cambio implícito de las exportaciones sea razonable frente al FIX.
+
+```{r validaciones-fuente}
+titulo_checkpoint("CHECKPOINT 3B · Validaciones de contenido por fuente")
+
+# ---- EMIM: consistencia de agregación -----------------------------------------------------
+emim_num <- emim_largo %>% select(variable, nivel, codigo, mes, valor)
+comparar_niveles <- function(nivel_hijo, nivel_padre) {
+  hijos <- emim_num %>% filter(nivel == nivel_hijo) %>%
+    mutate(padre = if (nivel_padre == "sector") "31-33"
+                   else substr(codigo, 1, if (nivel_padre == "subsector") 3 else 4))
+  hijos %>% group_by(variable, padre, mes) %>%
+    summarise(n_hijos = n(), hijos_na = sum(is.na(valor)), suma_hijos = sum(valor), .groups = "drop") %>%
+    left_join(emim_num %>% filter(nivel == nivel_padre) %>% select(variable, padre = codigo, mes, valor_padre = valor),
+              by = c("variable", "padre", "mes"), relationship = "one-to-one") %>%
+    mutate(comparable = hijos_na == 0 & !is.na(valor_padre), diferencia = suma_hijos - valor_padre,
+           nivel = paste(nivel_hijo, "→", nivel_padre))
+}
+agg <- bind_rows(comparar_niveles("subsector", "sector"), comparar_niveles("rama", "subsector"),
+                 comparar_niveles("clase", "rama"))
+res_agg <- agg %>% group_by(nivel) %>%
+  summarise(comparaciones = n(), comparables = sum(comparable), no_comparables_por_ND = sum(!comparable),
+            con_diferencia = sum(comparable & abs(diferencia) > 0.5), max_dif_abs = max(abs(diferencia[comparable])),
+            .groups = "drop")
+for (i in seq_len(nrow(res_agg))) {
+  registrar("CP3B", "MX_PROD_01", paste("La suma de componentes reproduce el agregado:", res_agg$nivel[i]),
+            res_agg$con_diferencia[i] == 0,
+            sprintf("%d de %d comparaciones con diferencia > 0.5; %d no comparables por ND",
+                    res_agg$con_diferencia[i], res_agg$comparables[i], res_agg$no_comparables_por_ND[i]),
+            si_falla = "REVISAR")
+}
+tabla(res_agg, "EMIM: consistencia de agregación (sector ← subsectores ← ramas ← clases)")
+tabla(agg %>% filter(comparable, abs(diferencia) > 0.5) %>% group_by(nivel, variable, padre) %>%
+        summarise(meses = n(), max_dif = max(abs(diferencia)), .groups = "drop"),
+      "EMIM: agregados cuya suma de componentes no coincide (si hay)")
+registrar("CP3B", "MX_PROD_01", "Toda rama tiene su subsector en el tabulado",
+          all(unique(substr(emim_rama$rama, 1, 3)) %in% emim_largo$codigo[emim_largo$nivel == "subsector"]), "")
+
+# ---- Exportaciones: comparación con la tabla dinámica TD --------------------------------
+td <- crudos$expo_td
+f_h <- which(norm_txt(td$c1) == "ano" & norm_txt(td$c2) == "mes")
+if (length(f_h) == 1) {
+  cod_td <- as.character(unlist(td[f_h, ], use.names = FALSE))
+  cod_td[is.na(cod_td)] <- paste0("sin_codigo_", which(is.na(cod_td)))
+  td_d <- td[(f_h + 1):nrow(td), ]
+  names(td_d) <- make.unique(cod_td)
+  names(td_d)[1:2] <- c("anio", "mes_num")
+  td_largo <- td_d %>% fill(anio) %>% filter(str_detect(coalesce(mes_num, ""), "^\\d+$")) %>%
+    select(anio, mes_num, matches("^\\d{4}$")) %>%
+    pivot_longer(-c(anio, mes_num), names_to = "rama", values_to = "td_txt") %>%
+    mutate(mes = make_date(as.integer(anio), as.integer(mes_num), 1),
+           td_pesos = suppressWarnings(as.numeric(td_txt)))
+  cmp_td <- full_join(select(td_largo, mes, rama, td_pesos), select(expo_rama, mes, rama, expo_valor_pesos),
+                      by = c("mes", "rama"), relationship = "one-to-one") %>%
+    mutate(coincide = !is.na(td_pesos) & !is.na(expo_valor_pesos) &
+             abs(td_pesos - expo_valor_pesos) <= 1e-6 * pmax(1, abs(expo_valor_pesos)))
+  registrar("CP3B", "MX_EXP_01", "La suma por rama coincide con la tabla dinámica TD del usuario",
+            all(cmp_td$coincide),
+            sprintf("%d de %d celdas mes-rama no coinciden o faltan en una de las dos", sum(!cmp_td$coincide), nrow(cmp_td)),
+            si_falla = "REVISAR")
+} else {
+  revisar("CP3B", "MX_EXP_01", "Comparación con la tabla dinámica TD", "No se encontró el encabezado Año/Mes en la hoja TD; no se comparó.")
+}
+
+# ---- Exportaciones: tipo de cambio implícito frente al FIX ------------------------------
+tc_impl <- expo %>% group_by(mes) %>% summarise(tc_implicito = sum(valor_pesos) / sum(valor_usd)) %>%
+  left_join(tc, by = "mes", relationship = "one-to-one") %>%
+  mutate(dif_pct = 100 * (tc_implicito / tc_fix - 1))
+registrar("CP3B", "MX_EXP_01", "Tipo de cambio implícito (pesos/dólares) a menos de 5% del FIX en todos los meses",
+          all(abs(tc_impl$dif_pct) < 5, na.rm = FALSE),
+          sprintf("Diferencia: mediana %.2f%%, mínima %.2f%%, máxima %.2f%%",
+                  median(tc_impl$dif_pct, na.rm = TRUE), min(tc_impl$dif_pct, na.rm = TRUE), max(tc_impl$dif_pct, na.rm = TRUE)),
+          si_falla = "REVISAR")
+tabla(tc_impl %>% arrange(desc(abs(dif_pct))) %>% head(10), "Meses con mayor diferencia entre tipo de cambio implícito y FIX")
+
+# ---- Clases de exportación frente a clases EMIM ------------------------------------------
+clases_emim <- unique(emim_largo$codigo[emim_largo$nivel == "clase"])
+clases_expo <- unique(expo$clase_scian)
+revisar("CP3B", "MX_EXP_01", "Clases de exportación que no están en la EMIM",
+        sprintf("%d de %d clases de exportación no están entre las %d clases de la EMIM. Al agregar a rama se incluyen todas (pregunta 5 de las notas).",
+                length(setdiff(clases_expo, clases_emim)), length(clases_expo), length(clases_emim)))
+cerrar_checkpoint("CP3B", "validaciones de contenido por fuente")
+```
+
+# Homologación de fechas, ramas y unidades
+
+## Checkpoint 4: correspondencias
+
+Todas las fuentes quedan con una columna `mes` de tipo fecha (primer día del mes). Las ramas se identifican con el **código SCIAN de 4 dígitos como texto** (con el nombre de la EMIM). Las correspondencias entre fuentes se establecen **solo por identidad exacta de códigos**, y únicamente para las decisiones activadas en la sección 1.3. Los casos sin correspondencia exacta se listan como pendientes; no se asocian por similitud de nombres.
+
+```{r homologacion}
+titulo_checkpoint("CHECKPOINT 4 · Homologación de meses, ramas, unidades y frecuencias")
+
+# ---- Meses ------------------------------------------------------------------------------------
+hom_meses <- tribble(
+  ~fuente,        ~formato_original,                                                         ~primer_mes,                    ~ultimo_mes,
+  "MX_PROD_01",   "Encabezado doble: año (texto) + nombre del mes en español",              min(emim_rama$mes),             max(emim_rama$mes),
+  "MX_EXP_01",    "Columnas Año y Mes (números)",                                             min(expo_rama$mes),             max(expo_rama$mes),
+  "MX_ARAN_01",   "Texto AAAA-MM-DD (día 1)",                                                 min(census_manuf$mes),          max(census_manuf$mes),
+  "US_PROD_01",   "Texto AAAA-MM-DD (día 1)",                                                 min(ip_largo$mes),              max(ip_largo$mes),
+  "PRECIOS_01",   "Número de serie de Excel (fecha)",                                         min(inpp_largo$mes),            max(inpp_largo$mes),
+  "INC_01",       "Número de serie de Excel (fecha, día 1)",                                  min(tpu$mes),                   max(tpu$mes),
+  "INC_02",       "Número de serie de Excel (fecha, día 1)",                                  min(wui_largo$mes),             max(wui_largo$mes),
+  "INC_03",       "Columnas Year (texto) y Month (número)",                                   min(epu$mes),                   max(epu$mes),
+  "MACRO_01",     "Número de serie de Excel (fecha, día 1)",                                  min(tc$mes),                    max(tc$mes),
+  "MACRO_02",     "Texto AAAA-MM-DD, diario",                                                 min(vix$fecha),                 max(vix$fecha)
+) %>% mutate(formato_homologado = if_else(fuente == "MACRO_02", "fecha diaria (no se homologa a mes salvo D6)",
+                                          "mes = Date, día 1 (AAAA-MM-01)"))
+tabla(hom_meses, "Meses: formato original y homologado", ancho_texto = 120)
+
+# ---- Frecuencias --------------------------------------------------------------------------
+hom_frec <- tribble(
+  ~fuente, ~frecuencia, ~tratamiento,
+  "MX_PROD_01, MX_EXP_01, MX_ARAN_01, US_PROD_01, PRECIOS_01", "Mensual", "Se integran por mes.",
+  "INC_01 (TPU_MONTHLY), INC_02, INC_03, MACRO_01", "Mensual", "Se integran por mes como variables comunes.",
+  "INC_01 (TPU_QUARTERLY)", "Trimestral", "No se integra: no se convierte a mensual.",
+  "INC_01 (TPU_DAILY)", "Diaria", "No se integra: ya existe la versión mensual oficial.",
+  "MACRO_02 (VIX)", "Diaria", ifelse(is.na(decisiones$vix_regla_mensual), "No se integra: falta la regla de conversión (D6).",
+                                     paste("Se integra con la regla", decisiones$vix_regla_mensual, "(D6)."))
+)
+tabla(hom_frec, "Frecuencias", ancho_texto = 120)
+
+# ---- Ramas: tabla de correspondencias -------------------------------------------------------
+ramas_emim <- nombres_rama %>% arrange(rama)
+subsectores_emim <- emim_largo %>% filter(nivel == "subsector") %>% distinct(subsector = codigo, subsector_nombre = nombre)
+g17_4 <- ip_cat %>% filter(tipo_codigo == "NAICS 4 dígitos", manufactura) %>% select(rama = naics, g17_serie_rama = serie, g17_desc_rama = descripcion)
+g17_3 <- ip_cat %>% filter(tipo_codigo == "NAICS 3 dígitos", manufactura) %>% select(subsector = naics, g17_serie_subsector = serie, g17_desc_subsector = descripcion)
+exigir(!anyDuplicated(g17_4$rama) && !anyDuplicated(g17_3$subsector),
+       "G.17: hay más de una serie con el mismo código NAICS de 3 o 4 dígitos; la correspondencia sería ambigua.")
+census_desc <- census_manuf %>% distinct(rama, census_desc = descripcion)
+
+todas_ramas <- sort(unique(c(ramas_emim$rama, expo_rama$rama, census_manuf$rama)))
+correspondencias <- tibble(rama = todas_ramas) %>%
+  left_join(ramas_emim, by = "rama") %>%
+  mutate(subsector = substr(rama, 1, 3),
+         en_emim = rama %in% emim_rama$rama, en_exportaciones = rama %in% expo_rama$rama,
+         en_census = rama %in% census_manuf$rama) %>%
+  left_join(census_desc, by = "rama") %>%
+  left_join(select(corr, rama = rama_scian, inpp_serie = id_serie_inpp, nombre_rama_corr = nombre_rama), by = "rama") %>%
+  left_join(g17_3, by = "subsector") %>%
+  left_join(g17_4, by = "rama")
+tabla(correspondencias %>% select(rama, rama_nombre, en_emim, en_exportaciones, en_census, census_desc, inpp_serie,
+                                  g17_serie_subsector, g17_serie_rama, g17_desc_rama),
+      "Correspondencia de ramas entre fuentes (solo por código idéntico)", max_filas = 200, ancho_texto = 60)
+
+# ---- Comprobaciones de ramas ----------------------------------------------------------------
+registrar("CP4", "Ramas", "Las ramas de exportaciones son las mismas que las de la EMIM",
+          setequal(expo_rama$rama, emim_rama$rama),
+          paste0("Solo en exportaciones: ", paste(setdiff(expo_rama$rama, emim_rama$rama), collapse = ", "),
+                 " · Solo en EMIM: ", paste(setdiff(emim_rama$rama, expo_rama$rama), collapse = ", ")), si_falla = "REVISAR")
+solo_census <- setdiff(census_manuf$rama, emim_rama$rama)
+registrar("CP4", "Ramas", "Todo código manufacturero del Census existe como rama EMIM", length(solo_census) == 0,
+          if (length(solo_census)) paste("Códigos sin rama EMIM (no se integran):", paste(solo_census, collapse = ", ")) else "Sí",
+          si_falla = "REVISAR")
+revisar("CP4", "Ramas", "Ramas EMIM sin datos del Census",
+        paste0(paste(setdiff(emim_rama$rama, census_manuf$rama), collapse = ", "),
+               ": quedarán con NA en las variables eeuu_imp_mx_* (no se completan)."))
+registrar("CP4", "Ramas", "La correspondencia rama-INPP cubre todas las ramas EMIM",
+          setequal(corr$rama_scian, emim_rama$rama),
+          paste("Diferencias:", paste(union(setdiff(corr$rama_scian, emim_rama$rama), setdiff(emim_rama$rama, corr$rama_scian)), collapse = ", ")))
+dif_nombres <- correspondencias %>% filter(en_emim, !is.na(nombre_rama_corr), norm_txt(rama_nombre) != norm_txt(nombre_rama_corr))
+registrar("CP4", "Ramas", "Nombres de rama iguales en la EMIM y en la tabla de correspondencia", nrow(dif_nombres) == 0,
+          if (nrow(dif_nombres)) paste("Ramas con nombre distinto:", paste(dif_nombres$rama, collapse = ", ")) else "Sí",
+          si_falla = "REVISAR")
+revisar("CP4", "Ramas", "Equivalencia NAICS (Census, G.17) = SCIAN (EMIM) por código",
+        "Se usa solo la identidad del código de 4 (o 3) dígitos. Compare las descripciones en inglés (Census, G.17) con los nombres SCIAN de la tabla de correspondencia antes de usar estas variables.")
+sin_g17 <- correspondencias %>% filter(en_emim, is.na(g17_serie_rama))
+revisar("CP4", "US_PROD_01", "Ramas sin serie G.17 de 4 dígitos idéntica",
+        sprintf("%d de %d ramas (%s). Quedan en NA en eeuu_ip_rama; no se usan agregados ni rangos del G.17 para completarlas.",
+                nrow(sin_g17), sum(correspondencias$en_emim), paste(sin_g17$rama, collapse = ", ")))
+g17_no_usadas <- ip_cat %>% filter(manufactura, !tipo_codigo %in% c("NAICS 4 dígitos", "NAICS 3 dígitos"))
+revisar("CP4", "US_PROD_01", "Series G.17 manufactureras no asignadas (rangos, listas, partes de industria o 5-6 dígitos)",
+        sprintf("%d series. Asignarlas requeriría una regla de correspondencia explícita.", nrow(g17_no_usadas)))
+registrar("CP4", "US_PROD_01", "Todos los subsectores EMIM tienen serie G.17 de 3 dígitos idéntica",
+          all(unique(substr(emim_rama$rama, 1, 3)) %in% g17_3$subsector),
+          paste("Sin serie:", paste(setdiff(unique(substr(emim_rama$rama, 1, 3)), g17_3$subsector), collapse = ", ")),
+          si_falla = "REVISAR")
+tabla(g17_no_usadas %>% select(serie, naics, descripcion, tipo_codigo), "Series G.17 manufactureras sin correspondencia exacta (pendientes de una regla)", max_filas = 200)
+
+# ---- Unidades ------------------------------------------------------------------------------
+hom_unid <- tribble(
+  ~fuente, ~variable, ~unidad_original, ~tratamiento,
+  "MX_PROD_01", "Valor de producción y ventas", "Miles de pesos corrientes", "Se conserva (no se reescala).",
+  "MX_PROD_01", "Personal ocupado / horas", "Personas / miles de horas", "Se conserva.",
+  "MX_EXP_01", "Valor de exportaciones", "Pesos corrientes y dólares corrientes", "Se conserva. OJO: pesos, no miles de pesos como la EMIM.",
+  "MX_ARAN_01", "Importaciones, valor gravable y aranceles", "Dólares corrientes", "Se conserva.",
+  "MX_ARAN_01", "Tasas", "Proporción (0.01 = 1%)", "Se conserva.",
+  "PRECIOS_01", "INPP", "Índice; base declarada jul-2025=100, base efectiva jul-2019=100", "Se conserva.",
+  "US_PROD_01", "Producción industrial EE.UU.", "Índice 2017=100 (según el script; por confirmar), SA", "Se conserva.",
+  "INC_01", "TPU", "Índice (100 = 1% de artículos)", "Se conserva.",
+  "INC_02", "WUI/WTUI/WPUI", "Frecuencia de palabras / total de palabras × 1,000 (países); promedio ponderado por PIB con otra escala (mundo)", "Se conserva; escalas no comparables entre país y mundo.",
+  "INC_03", "EPU México", "Índice normalizado (Baker, Bloom y Davis)", "Se conserva.",
+  "MACRO_01", "Tipo de cambio FIX", "Pesos por dólar, promedio mensual", "Se conserva.",
+  "MACRO_02", "VIX", "Puntos de índice (volatilidad anualizada, %)", "Se conserva."
+)
+tabla(hom_unid, "Unidades: se documentan, no se convierten", ancho_texto = 150)
+revisar("CP4", "Unidades", "EMIM en miles de pesos vs. exportaciones en pesos",
+        "No se convierte ninguna unidad. Si se comparan ambas variables, divida las exportaciones entre 1,000 o multiplique la EMIM por 1,000.")
+revisar("CP4", "Conceptos", "Exportaciones mexicanas vs. importaciones de EE.UU. desde México",
+        "Son flujos distintos (destino, registro, valoración). Se conservan como variables separadas (expo_* y eeuu_imp_mx_*).")
+revisar("CP4", "Conceptos", "INPP de mercancías finales como deflactor",
+        "Excluye bienes intermedios y es de subsector: todas las ramas de un subsector comparten deflactor.")
+cerrar_checkpoint("CP4", "homologación")
+```
+
+# Integración de las variables por rama
+
+## Construcción de las piezas a integrar
+
+Cada fuente se convierte en una *pieza* con una llave explícita: `mes + rama` para variables por rama, `rama` para atributos fijos de la rama y `mes` para variables comunes. Cada pieza conserva **toda** su cobertura temporal; la unión decide después qué parte cae dentro del panel y documenta el resto.
+
+```{r piezas}
+pieza <- function(nombre, fuente_id, llave, datos, cobertura_geografica) {
+  list(nombre = nombre, fuente_id = fuente_id, llave = llave, datos = datos,
+       cobertura_geografica = cobertura_geografica,
+       tipo = if (identical(llave, c("mes", "rama"))) "por rama (mes-rama)"
+              else if (identical(llave, "rama")) "atributo de rama"
+              else "común por mes")
+}
+piezas <- list()
+
+# ---- Atributos de la rama (nombres de la EMIM) -------------------------------------------
+piezas$atributos <- pieza("Atributos de la rama (EMIM)", "MX_PROD_01", "rama",
+  ramas_emim %>% mutate(subsector = substr(rama, 1, 3)) %>%
+    left_join(subsectores_emim, by = "subsector", relationship = "many-to-one"), "México")
+
+# ---- Por rama -------------------------------------------------------------------------------
+piezas$emim <- pieza("EMIM", "MX_PROD_01", c("mes", "rama"), emim_rama, "México")
+piezas$expo <- pieza("Exportaciones", "MX_EXP_01", c("mes", "rama"), expo_rama, "México")
+if (decisiones$aranceles_por_codigo_identico) {
+  piezas$census <- pieza("Census: importaciones de EE.UU. desde México y aranceles", "MX_ARAN_01", c("mes", "rama"),
+    census_manuf %>% filter(rama %in% emim_rama$rama) %>%
+      transmute(mes, rama, eeuu_imp_mx_valor_usd = valor_importado, eeuu_imp_mx_valor_gravable_usd = valor_gravable,
+                eeuu_imp_mx_aranceles_usd = aranceles, eeuu_imp_mx_tasa_efectiva = tasa_efectiva,
+                eeuu_imp_mx_tasa_gravable = tasa_gravable),
+    "EE.UU. (importador) / México (origen)")
+}
+piezas$inpp <- pieza("INPP del subsector de la rama", "PRECIOS_01", c("mes", "rama"),
+  corr %>% select(rama = rama_scian, id_serie = id_serie_inpp) %>%
+    inner_join(inpp_largo, by = "id_serie", relationship = "many-to-many") %>%
+    transmute(mes, rama, inpp_subsector_indice = valor, inpp_subsector_serie = id_serie),
+  "México")
+if (decisiones$ip_eeuu_subsector_codigo_identico) {
+  piezas$g17_sub <- pieza("G.17: producción industrial de EE.UU. del subsector (NAICS 3 idéntico)", "US_PROD_01", c("mes", "rama"),
+    ramas_emim %>% transmute(rama, subsector = substr(rama, 1, 3)) %>%
+      inner_join(g17_3, by = "subsector", relationship = "many-to-one") %>%
+      inner_join(select(ip_largo, mes, serie, indice), by = c("g17_serie_subsector" = "serie"), relationship = "many-to-many") %>%
+      transmute(mes, rama, eeuu_ip_subsector = indice, eeuu_ip_subsector_serie = g17_serie_subsector),
+    "EE.UU.")
+}
+if (decisiones$ip_eeuu_rama_codigo_identico) {
+  piezas$g17_rama <- pieza("G.17: producción industrial de EE.UU. de la rama (NAICS 4 idéntico)", "US_PROD_01", c("mes", "rama"),
+    ramas_emim %>% select(rama) %>%
+      inner_join(g17_4, by = "rama", relationship = "one-to-one") %>%
+      inner_join(select(ip_largo, mes, serie, indice), by = c("g17_serie_rama" = "serie"), relationship = "one-to-many") %>%
+      transmute(mes, rama, eeuu_ip_rama = indice, eeuu_ip_rama_serie = g17_serie_rama),
+    "EE.UU.")
+}
+
+# ---- Comunes por mes -------------------------------------------------------------------------
+piezas$tpu <- pieza("TPU (Caldara, Iacoviello et al.)", "INC_01", "mes", tpu, "EE.UU. (prensa estadounidense)")
+wui_sel <- wui_largo %>% filter(pais %in% decisiones$wui_paises) %>%
+  transmute(mes, variable = paste0(tolower(indice), "_", tolower(pais)), valor)
+if (decisiones$wui_incluir_promedio_mundial) {
+  wui_sel <- bind_rows(wui_sel, wui_mundo %>% transmute(mes, variable = paste0(tolower(indice), "_mundo_pib"), valor))
+}
+piezas$wui <- pieza("World Uncertainty Index (WUI, WTUI, WPUI)", "INC_02", "mes",
+                    wui_sel %>% pivot_wider(names_from = variable, values_from = valor) %>% arrange(mes),
+                    "País (MEX, USA) y mundo")
+piezas$epu <- pieza("EPU México (Baker, Bloom y Davis)", "INC_03", "mes", epu, "México")
+piezas$tc  <- pieza("Tipo de cambio FIX", "MACRO_01", "mes", tc, "México")
+if (!is.null(vix_mensual)) piezas$vix <- pieza("VIX mensual", "MACRO_02", "mes", vix_mensual, "EE.UU. (mercado financiero)")
+
+tabla(tibble(pieza = names(piezas), nombre = map_chr(piezas, "nombre"), fuente = map_chr(piezas, "fuente_id"),
+             tipo = map_chr(piezas, "tipo"), llave = map_chr(piezas, ~ paste(.x$llave, collapse = " + ")),
+             variables = map_chr(piezas, ~ paste(setdiff(names(.x$datos), .x$llave), collapse = ", "))),
+      "Piezas que se integrarán, en este orden", ancho_texto = 250)
+```
+
+## Checkpoint 5: llaves y cobertura antes de integrar
+
+Antes de unir, se comprueba que la llave de cada pieza sea única (si no, la unión multiplicaría filas) y se comparan meses y ramas entre fuentes.
+
+```{r checkpoint-5}
+titulo_checkpoint("CHECKPOINT 5 · Llaves y cobertura antes de integrar")
+
+# Universo de llaves del panel (decisión D1)
+fuentes_llave <- list(MX_PROD_01 = emim_rama, MX_EXP_01 = expo_rama,
+                      MX_ARAN_01 = if (!is.null(piezas$census)) piezas$census$datos else NULL)
+fuentes_llave <- fuentes_llave[decisiones$universo_llaves]
+llaves <- map_dfr(fuentes_llave, ~ distinct(.x, mes, rama)) %>% distinct() %>% arrange(rama, mes)
+for (nm in names(fuentes_llave)) {
+  flag <- paste0("obs_", c(MX_PROD_01 = "emim", MX_EXP_01 = "exportaciones", MX_ARAN_01 = "census")[[nm]])
+  llaves[[flag]] <- paste(llaves$mes, llaves$rama) %in% paste(fuentes_llave[[nm]]$mes, fuentes_llave[[nm]]$rama)
+}
+meses_panel <- sort(unique(llaves$mes))
+
+cp5 <- imap_dfr(piezas, function(p, id) {
+  d <- p$datos
+  dup <- nrow(d %>% count(pick(all_of(p$llave))) %>% filter(n > 1))
+  registrar("CP5", p$nombre, paste0("Llave única (", paste(p$llave, collapse = " + "), ")"), dup == 0,
+            sprintf("%d combinaciones duplicadas", dup))
+  tibble(pieza = id, fuente = p$fuente_id, tipo = p$tipo, observaciones = nrow(d),
+         meses = if ("mes" %in% names(d)) n_distinct(d$mes) else NA_integer_,
+         ramas = if ("rama" %in% names(d)) n_distinct(d$rama) else NA_integer_,
+         periodo = if ("mes" %in% names(d)) rango_txt(d$mes) else "no aplica",
+         duplicados_llave = dup,
+         ramas_fuera_del_panel = if ("rama" %in% names(d)) paste(setdiff(unique(d$rama), llaves$rama), collapse = ", ") else "",
+         ramas_del_panel_sin_dato = if ("rama" %in% names(d)) paste(setdiff(unique(llaves$rama), d$rama), collapse = ", ") else "",
+         meses_del_panel_sin_dato = if ("mes" %in% names(d)) sum(!meses_panel %in% d$mes) else NA_integer_,
+         meses_fuera_del_panel = if ("mes" %in% names(d)) sum(!unique(d$mes) %in% meses_panel) else NA_integer_)
+})
+registrar("CP5", "Panel", "Universo de llaves mes-rama sin duplicados", !anyDuplicated(llaves[c("mes", "rama")]),
+          sprintf("%d combinaciones mes-rama; %d ramas; %s", nrow(llaves), n_distinct(llaves$rama), rango_txt(llaves$mes)))
+tabla(cp5, "Llaves y cobertura de cada pieza (frente al universo del panel)", ancho_texto = 120)
+tabla(llaves %>% group_by(rama) %>% summarise(primer_mes = min(mes), ultimo_mes = max(mes), meses = n(),
+                                              across(starts_with("obs_"), sum)) %>%
+        count(primer_mes, ultimo_mes, meses, name = "ramas"),
+      "Universo del panel: periodo por rama (el panel NO se balancea)")
+aviso(paste0("<b>Universo del panel (decisión D1):</b> unión de las combinaciones mes-rama de ",
+             paste(decisiones$universo_llaves, collapse = ", "), ". Resultado: ", nrow(llaves), " filas, ",
+             n_distinct(llaves$rama), " ramas, ", rango_txt(llaves$mes),
+             ". Las variables comunes y las asignadas por correspondencia (INPP, G.17) solo se pegan sobre estas filas; ",
+             "sus meses fuera de este rango quedan documentados como 'sin correspondencia' en el checkpoint 6 y en la hoja 'cobertura'."), "info")
+cerrar_checkpoint("CP5", "llaves y cobertura")
+```
+
+## Checkpoint 6: integración de las fuentes
+
+Las uniones son siempre `left_join()` sobre el universo de llaves, con el argumento `relationship` de `dplyr`, que **aborta** si una unión fuera a multiplicar filas. Nunca se usa `inner_join()` sobre la base. Después de cada unión se registra qué cambió.
+
+```{r integracion}
+titulo_checkpoint("CHECKPOINT 6 · Integración de las fuentes, unión por unión")
+
+integrar <- function(base, p, orden) {
+  vars <- setdiff(names(p$datos), p$llave)
+  exigir(!any(vars %in% names(base)), "Integración de '", p$nombre, "': variables ya existentes en la base: ",
+         paste(intersect(vars, names(base)), collapse = ", "))
+  rel <- if (identical(p$llave, c("mes", "rama"))) "one-to-one" else "many-to-one"
+  n0 <- nrow(base); k0 <- ncol(base)
+  nueva <- left_join(base, p$datos, by = p$llave, relationship = rel)
+  sin_corr <- anti_join(p$datos, base, by = p$llave)
+  panel_sin_fuente <- anti_join(distinct(select(base, all_of(p$llave))), p$datos, by = p$llave)
+  na_intro <- map_int(vars, ~ sum(is.na(nueva[[.x]])))
+  registrar("CP6", p$nombre, "La unión no multiplica ni elimina filas", nrow(nueva) == n0,
+            sprintf("%d filas antes, %d después", n0, nrow(nueva)))
+  .reg$uniones <- bind_rows(.reg$uniones, tibble(
+    orden = orden, fuente_incorporada = p$nombre, fuente_id = p$fuente_id, llave = paste(p$llave, collapse = " + "),
+    relacion = rel, filas_antes = n0, filas_despues = nrow(nueva), columnas_antes = k0, columnas_despues = ncol(nueva),
+    meses_resultantes = n_distinct(nueva$mes), ramas_resultantes = n_distinct(nueva$rama),
+    variables_nuevas = paste(vars, collapse = ", "),
+    obs_fuente_sin_correspondencia = nrow(sin_corr),
+    periodo_sin_correspondencia = if ("mes" %in% names(sin_corr)) rango_txt(sin_corr$mes) else paste(unique(sin_corr$rama), collapse = ", "),
+    llaves_del_panel_sin_dato_en_fuente = nrow(panel_sin_fuente),
+    na_en_variables_nuevas = paste0(vars, "=", na_intro, collapse = "; ")))
+  nueva
+}
+
+base <- llaves
+for (i in seq_along(piezas)) base <- integrar(base, piezas[[i]], i)
+
+# ---- Variable derivada: valor real de la producción (decisión D4) ----------------------------
+if (decisiones$calcular_valor_produccion_real) {
+  base <- base %>% mutate(emim_valor_produccion_real = emim_valor_produccion / (inpp_subsector_indice / 100))
+  registrar("CP6", "Derivada", "emim_valor_produccion_real solo existe donde hay valor nominal e INPP",
+            sum(!is.na(base$emim_valor_produccion_real)) ==
+              sum(!is.na(base$emim_valor_produccion) & !is.na(base$inpp_subsector_indice)),
+            sprintf("%d valores reales calculados", sum(!is.na(base$emim_valor_produccion_real))))
+  revisar("CP6", "Derivada", "Valor real de la producción (D4)",
+          "emim_valor_produccion_real = emim_valor_produccion / (inpp_subsector_indice / 100): miles de pesos a precios de julio de 2019 (base efectiva del INPP).")
+}
+
+tabla(.reg$uniones, "Resumen de cada unión", ancho_texto = 200)
+cerrar_checkpoint("CP6", "integración")
+```
+
+# Incorporación de variables comunes por mes
+
+Las variables comunes (TPU, WUI/WTUI/WPUI, EPU, tipo de cambio y, si se decidió, VIX) ya se incorporaron en el checkpoint 6 (piezas con llave `mes`). Aquí se verifica que **su valor sea idéntico entre todas las ramas de un mismo mes** y que los atributos de rama sean constantes dentro de cada rama.
+
+```{r comunes}
+titulo_checkpoint("CHECKPOINT 6B · Variables comunes por mes y atributos de rama")
+constantes <- imap_dfr(piezas, function(p, id) {
+  if (identical(p$llave, c("mes", "rama"))) return(NULL)
+  vars <- setdiff(names(p$datos), p$llave)
+  map_dfr(vars, function(v) {
+    n_var <- base %>% group_by(pick(all_of(p$llave))) %>% summarise(n = n_distinct(.data[[v]]), .groups = "drop")
+    ok <- all(n_var$n == 1)
+    registrar("CP6B", p$nombre, paste0(v, ": un solo valor por ", p$llave), ok,
+              sprintf("%d grupos (%s) con más de un valor", sum(n_var$n > 1), p$llave))
+    tibble(variable = v, fuente = p$fuente_id, constante_por = p$llave, grupos = nrow(n_var), grupos_con_varios_valores = sum(n_var$n > 1))
+  })
+})
+tabla(constantes, "Constancia de variables comunes (por mes) y atributos (por rama)", max_filas = 100)
+cerrar_checkpoint("CP6B", "variables comunes")
+```
+
+# Construcción de la base final
+
+Se ordenan las columnas (identificadores, variables de México por rama, variables de EE.UU. por industria, incertidumbre y controles), se agrega el periodo en texto `AAAA-MM` y se construye el diccionario de variables.
+
+```{r base-final}
+titulo_checkpoint("CHECKPOINT 7 · Base integrada preliminar")
+
+base <- base %>% mutate(periodo = format(mes, "%Y-%m"))
+orden_cols <- c("mes", "periodo", "rama", "rama_nombre", "subsector", "subsector_nombre",
+                grep("^obs_", names(base), value = TRUE),
+                grep("^emim_", names(base), value = TRUE),
+                grep("^inpp_", names(base), value = TRUE),
+                grep("^expo_", names(base), value = TRUE),
+                grep("^eeuu_imp_mx_", names(base), value = TRUE),
+                grep("^eeuu_ip_", names(base), value = TRUE),
+                grep("^tpu", names(base), value = TRUE),
+                grep("^(wui|wtui|wpui)_", names(base), value = TRUE),
+                grep("^epu_", names(base), value = TRUE),
+                grep("^tc_", names(base), value = TRUE),
+                grep("^vix_", names(base), value = TRUE))
+exigir(setequal(orden_cols, names(base)) && !anyDuplicated(orden_cols),
+       "Construcción de la base: hay columnas sin lugar en el orden final: ",
+       paste(setdiff(names(base), orden_cols), collapse = ", "))
+base <- base %>% select(all_of(orden_cols)) %>% arrange(rama, mes)
+
+# ---- Diccionario de variables ------------------------------------------------------------
+arch <- function(id) fuentes$ruta[fuentes$id == id]
+dicc <- tribble(
+  ~variable, ~descripcion, ~unidad, ~frecuencia_original, ~nivel_en_base, ~cobertura_geografica, ~fuente_id, ~hoja_o_columna_original, ~transformacion,
+  "mes", "Mes de referencia (primer día del mes)", "fecha", "mensual", "identificador", "—", "construida", "—", "Fechas homologadas de todas las fuentes",
+  "periodo", "Mes en texto AAAA-MM", "texto", "mensual", "identificador", "—", "construida", "—", "format(mes, '%Y-%m')",
+  "rama", "Rama SCIAN 2018 de 4 dígitos (texto)", "código", "—", "identificador", "México", "MX_PROD_01", "Tabulado: Sector SCIAN (código)", "Código separado del nombre",
+  "rama_nombre", "Nombre de la rama según la EMIM", "texto", "—", "atributo de rama", "México", "MX_PROD_01", "Tabulado: Sector SCIAN (nombre)", "Nombre separado del código",
+  "subsector", "Subsector SCIAN (3 primeros dígitos de la rama)", "código", "—", "atributo de rama", "México", "MX_PROD_01", "—", "substr(rama, 1, 3)",
+  "subsector_nombre", "Nombre del subsector según la EMIM", "texto", "—", "atributo de rama", "México", "MX_PROD_01", "Tabulado: filas de subsector", "—",
+  "obs_emim", "TRUE si la combinación mes-rama existe en la EMIM", "lógico", "—", "mes-rama", "—", "MX_PROD_01", "—", "Indicador de cobertura",
+  "obs_exportaciones", "TRUE si la combinación mes-rama existe en las exportaciones", "lógico", "—", "mes-rama", "—", "MX_EXP_01", "—", "Indicador de cobertura",
+  "obs_census", "TRUE si la combinación mes-rama existe en el Census", "lógico", "—", "mes-rama", "—", "MX_ARAN_01", "—", "Indicador de cobertura",
+  "emim_personal_ocupado", "Personal ocupado total", "número de personas", "mensual", "mes-rama", "México", "MX_PROD_01", dicc_emim$variable_original[1], "Ninguna",
+  "emim_horas_trabajadas", "Horas trabajadas por el personal ocupado total", "miles de horas", "mensual", "mes-rama", "México", "MX_PROD_01", dicc_emim$variable_original[2], "Ninguna",
+  "emim_valor_produccion", "Valor de producción de los productos elaborados (nominal, sin ajuste estacional)", "miles de pesos corrientes", "mensual", "mes-rama", "México", "MX_PROD_01", dicc_emim$variable_original[3], "ND -> NA",
+  "emim_valor_ventas", "Valor de ventas de los productos elaborados (nominal)", "miles de pesos corrientes", "mensual", "mes-rama", "México", "MX_PROD_01", dicc_emim$variable_original[4], "ND -> NA",
+  "emim_celdas_nd", "Variables de la EMIM confidenciales (ND) en esa rama y mes", "texto", "mensual", "mes-rama", "México", "MX_PROD_01", "celdas 'ND'", "Indicador del motivo del NA",
+  "emim_estatus_cifra", "Estatus de la cifra según las notas de INEGI", "texto (definitiva / revisada / preliminar)", "mensual", "mes-rama", "México", "MX_PROD_01", "notas al pie", "Clasificado por fecha",
+  "emim_valor_produccion_real", "Valor de producción deflactado con el INPP del subsector", "miles de pesos de julio de 2019", "mensual", "mes-rama", "México", "MX_PROD_01 + PRECIOS_01", "—", "emim_valor_produccion / (inpp_subsector_indice / 100) (D4)",
+  "inpp_subsector_indice", "INPP de mercancías y servicios finales por origen, subsector de la rama", "índice, base efectiva jul-2019=100", "mensual", "mes-rama (asignado por subsector)", "México", "PRECIOS_01", "serie según docs/correspondencia_rama_inpp.csv", "Asignación rama -> subsector",
+  "inpp_subsector_serie", "Clave INEGI de la serie INPP asignada", "código", "—", "mes-rama", "México", "PRECIOS_01 + DOC_CORR", "fila 'Fecha'", "—",
+  "expo_valor_pesos", "Exportaciones de la rama (suma de clases SCIAN de 6 dígitos)", "pesos corrientes", "mensual", "mes-rama", "México (todos los destinos)", "MX_EXP_01", "Datos: Valor en pesos", "Suma por rama",
+  "expo_valor_usd", "Exportaciones de la rama (suma de clases SCIAN de 6 dígitos)", "dólares corrientes", "mensual", "mes-rama", "México (todos los destinos)", "MX_EXP_01", "Datos: Valor en dólares", "Suma por rama",
+  "expo_n_clases", "Número de clases SCIAN con registro de exportación en el mes", "número", "mensual", "mes-rama", "México", "MX_EXP_01", "Datos: SCIAN", "Conteo por rama",
+  "eeuu_imp_mx_valor_usd", "Importaciones de EE.UU. desde México para consumo (CON_VAL_MO)", "dólares corrientes", "mensual", "mes-rama (NAICS 4 = SCIAN 4)", "EE.UU. <- México", "MX_ARAN_01", "valor_importado", "Ninguna (D2)",
+  "eeuu_imp_mx_valor_gravable_usd", "Valor gravable de esas importaciones (DUT_VAL_MO)", "dólares corrientes", "mensual", "mes-rama (NAICS 4 = SCIAN 4)", "EE.UU. <- México", "MX_ARAN_01", "valor_gravable", "Ninguna (D2)",
+  "eeuu_imp_mx_aranceles_usd", "Aranceles calculados (CAL_DUT_MO)", "dólares corrientes", "mensual", "mes-rama (NAICS 4 = SCIAN 4)", "EE.UU. <- México", "MX_ARAN_01", "aranceles", "Ninguna (D2)",
+  "eeuu_imp_mx_tasa_efectiva", "Tasa arancelaria efectiva: aranceles / valor importado", "proporción", "mensual", "mes-rama (NAICS 4 = SCIAN 4)", "EE.UU. <- México", "MX_ARAN_01", "tasa_efectiva", "Ninguna (D2); NA si no hubo importaciones",
+  "eeuu_imp_mx_tasa_gravable", "Tasa sobre valor gravable: aranceles / valor gravable", "proporción", "mensual", "mes-rama (NAICS 4 = SCIAN 4)", "EE.UU. <- México", "MX_ARAN_01", "tasa_gravable", "Ninguna (D2); NA si valor gravable = 0",
+  "eeuu_ip_subsector", "Producción industrial de EE.UU. del subsector NAICS de 3 dígitos idéntico al de la rama", "índice (2017=100, por confirmar), SA", "mensual", "mes-rama (asignado por subsector)", "EE.UU.", "US_PROD_01", "columna de la serie G.17", "Asignación por código (D3a)",
+  "eeuu_ip_subsector_serie", "Serie G.17 asignada (subsector)", "código", "—", "mes-rama", "EE.UU.", "US_PROD_02", "serie", "—",
+  "eeuu_ip_rama", "Producción industrial de EE.UU. de la industria NAICS de 4 dígitos idéntica a la rama", "índice (2017=100, por confirmar), SA", "mensual", "mes-rama (asignado por código)", "EE.UU.", "US_PROD_01", "columna de la serie G.17", "Asignación por código (D3b)",
+  "eeuu_ip_rama_serie", "Serie G.17 asignada (rama)", "código", "—", "mes-rama", "EE.UU.", "US_PROD_02", "serie", "—",
+  "tpu", "Índice de incertidumbre de política comercial (TPU)", "índice (100 = 1% de artículos)", "mensual", "común por mes", "EE.UU. (prensa)", "INC_01", "TPU_MONTHLY: TPU", "Ninguna",
+  "tpu_share", "Proporción de artículos sobre TPU", "proporción", "mensual", "común por mes", "EE.UU. (prensa)", "INC_01", "TPU_MONTHLY: TPU_SHARE", "Ninguna",
+  "tpu_raw", "Número de artículos sobre TPU", "artículos", "mensual", "común por mes", "EE.UU. (prensa)", "INC_01", "TPU_MONTHLY: TPU_RAW", "Ninguna",
+  "tpu_n7", "Total de artículos en los 7 periódicos", "artículos", "mensual", "común por mes", "EE.UU. (prensa)", "INC_01", "TPU_MONTHLY: N7", "Ninguna",
+  "epu_mex", "Índice de incertidumbre de política económica para México (EPU)", "índice", "mensual", "común por mes", "México", "INC_03", "Mexican Policy Uncertainty Index", "Ninguna",
+  "tc_fix", "Tipo de cambio FIX, promedio mensual (SF17908)", "pesos por dólar", "mensual", "común por mes", "México", "MACRO_01", "SF17908", "Ceros de 1991 -> NA (D5)"
+)
+nombres_ind <- c(wui = "World Uncertainty Index (WUI, incertidumbre general)",
+                 wtui = "World Trade Uncertainty Index (WTUI, incertidumbre comercial)",
+                 wpui = "World Policy Uncertainty Index (WPUI, incertidumbre de política)")
+hojas_ind <- c(wui = "T1", wtui = "T6", wpui = "T7")
+hojas_f <- c(wui = "F1", wtui = "F2", wpui = "F3")
+vars_wui <- grep("^(wui|wtui|wpui)_", names(base), value = TRUE)
+dicc_wui <- tibble(variable = vars_wui) %>%
+  mutate(ind = str_extract(variable, "^[a-z]+"), sufijo = str_remove(variable, "^[a-z]+_"),
+         mundo = sufijo == "mundo_pib",
+         descripcion = paste0(nombres_ind[ind], if_else(mundo, ", promedio mundial ponderado por PIB", paste0(", ", toupper(sufijo)))),
+         unidad = if_else(mundo, "índice (escala del promedio ponderado; distinta a la de países)", "frecuencia de palabras / total de palabras × 1,000"),
+         frecuencia_original = "mensual", nivel_en_base = "común por mes",
+         cobertura_geografica = if_else(mundo, "Mundo (71 países)", toupper(sufijo)), fuente_id = "INC_02",
+         hoja_o_columna_original = if_else(mundo, paste0("Hoja ", hojas_f[ind], ", columna B"), paste0("Hoja ", hojas_ind[ind], ", columna ", toupper(sufijo))),
+         transformacion = "Ninguna (D7)") %>%
+  select(-ind, -sufijo, -mundo)
+vars_vix <- grep("^vix_", names(base), value = TRUE)
+dicc_vix <- tibble(variable = vars_vix,
+                   descripcion = if_else(vars_vix == "vix_dias_con_dato", "Días con dato del VIX en el mes", "VIX mensual"),
+                   unidad = if_else(vars_vix == "vix_dias_con_dato", "días", "puntos de índice"),
+                   frecuencia_original = "diaria", nivel_en_base = "común por mes", cobertura_geografica = "EE.UU.",
+                   fuente_id = "MACRO_02", hoja_o_columna_original = "VIXCLS",
+                   transformacion = paste("Conversión a mensual:", coalesce(decisiones$vix_regla_mensual, "no aplica"), "(D6)"))
+diccionario <- bind_rows(dicc, dicc_wui, dicc_vix) %>%
+  filter(variable %in% names(base)) %>%
+  mutate(archivo_original = map_chr(fuente_id, ~ paste(na.omit(fuentes$ruta[fuentes$id %in% str_split(.x, " \\+ ")[[1]]]), collapse = " + "))) %>%
+  mutate(orden = match(variable, names(base))) %>% arrange(orden) %>% select(-orden)
+
+# ---- Resúmenes de la base preliminar ------------------------------------------------------
+id_cols <- c("mes", "periodo", "rama", "rama_nombre", "subsector", "subsector_nombre")
+vars_datos <- setdiff(names(base), c(id_cols, grep("^obs_", names(base), value = TRUE)))
+cat(sprintf("\n\n- **Dimensiones:** %d filas × %d columnas\n- **Meses:** %d (%s)\n- **Ramas:** %d\n- **Variables de datos:** %d\n\n",
+            nrow(base), ncol(base), n_distinct(base$mes), rango_txt(base$mes), n_distinct(base$rama), length(vars_datos)))
+tabla(tibble(columna = names(base), tipo = map_chr(base, ~ class(.x)[1])) %>%
+        left_join(select(diccionario, variable, unidad, fuente_id), by = c("columna" = "variable")),
+      "Variables de la base", max_filas = 200)
+tabla(base %>% count(rama, rama_nombre, name = "observaciones") %>% count(observaciones, name = "ramas"),
+      "Número de observaciones por rama (distribución)")
+cobertura_var <- map_dfr(vars_datos, function(v) {
+  x <- base[[v]]; m <- base$mes[!is.na(x)]
+  tibble(variable = v, primer_mes = if (length(m)) min(m) else as.Date(NA), ultimo_mes = if (length(m)) max(m) else as.Date(NA),
+         ramas_con_dato = n_distinct(base$rama[!is.na(x)]), no_faltantes = sum(!is.na(x)),
+         faltantes = sum(is.na(x)), pct_faltantes = round(100 * mean(is.na(x)), 2))
+})
+tabla(cobertura_var, "Cobertura temporal y faltantes por variable en la base", max_filas = 200)
+incompletas <- base %>% mutate(n_faltantes = rowSums(is.na(select(., all_of(vars_datos))))) %>%
+  group_by(periodo) %>% summarise(filas = n(), filas_incompletas = sum(n_faltantes > 0), faltantes_promedio = mean(n_faltantes))
+tabla(incompletas %>% filter(filas_incompletas > 0) %>% arrange(periodo), "Meses con filas incompletas (resumen)", max_filas = 30)
+registrar("CP7", "Base", "La base no se restringió al periodo común ni se balanceó (filas = universo de llaves; rango = el de las fuentes del universo)",
+          nrow(base) == nrow(llaves) &&
+            min(base$mes) == min(do.call(c, map(fuentes_llave, ~ min(.x$mes)))) &&
+            max(base$mes) == max(do.call(c, map(fuentes_llave, ~ max(.x$mes)))),
+          sprintf("%d filas; %d ramas; %s; ninguna fila se eliminó por faltantes", nrow(base), n_distinct(base$rama), rango_txt(base$mes)))
+registrar("CP7", "Base", "Todas las columnas tienen entrada en el diccionario", setequal(diccionario$variable, names(base)),
+          paste("Sin entrada:", paste(setdiff(names(base), diccionario$variable), collapse = ", ")))
+cerrar_checkpoint("CP7", "base integrada preliminar")
+```
+
+# Validaciones de la base integrada
+
+## Checkpoint 8: pruebas finales antes de exportar
+
+Doce pruebas explícitas (la 12 se ejecuta después de escribir el Excel). Los errores críticos detienen la exportación; las advertencias quedan en la hoja `validaciones`.
+
+```{r checkpoint-8}
+titulo_checkpoint("CHECKPOINT 8 · Validaciones finales")
+
+# 1. Llave única
+registrar("CP8", "1. Llave", "La combinación mes-rama es única", !anyDuplicated(base[c("mes", "rama")]),
+          sprintf("%d duplicados", sum(duplicated(base[c("mes", "rama")]))))
+# 2. Fechas mensuales
+registrar("CP8", "2. Fechas", "mes es Date, sin NA y siempre día 1",
+          inherits(base$mes, "Date") && !anyNA(base$mes) && all(day(base$mes) == 1),
+          sprintf("Clase: %s; NA: %d", class(base$mes)[1], sum(is.na(base$mes))))
+registrar("CP8", "2. Fechas", "periodo = mes en formato AAAA-MM", identical(base$periodo, format(base$mes, "%Y-%m")), "")
+# 3. Ramas
+registrar("CP8", "3. Ramas", "rama es texto de 4 dígitos", is.character(base$rama) && all(str_detect(base$rama, "^\\d{4}$")), "")
+registrar("CP8", "3. Ramas", "Toda rama tiene nombre EMIM", !anyNA(base$rama_nombre),
+          paste("Sin nombre:", paste(unique(base$rama[is.na(base$rama_nombre)]), collapse = ", ")), si_falla = "REVISAR")
+registrar("CP8", "3. Ramas", "subsector = primeros 3 dígitos de la rama", all(base$subsector == substr(base$rama, 1, 3), na.rm = FALSE), "")
+
+# 4, 6, 8, 9. Verificación pieza por pieza contra la fuente limpia
+verif <- imap_dfr(piezas, function(p, id) {
+  vars <- setdiff(names(p$datos), p$llave)
+  esencial <- base %>% select(all_of(c(p$llave, vars))) %>% distinct()
+  cmp <- inner_join(esencial, p$datos, by = p$llave, suffix = c(".base", ".fuente"), relationship = "many-to-one")
+  map_dfr(vars, function(v) {
+    identicos <- identical(cmp[[paste0(v, ".base")]], cmp[[paste0(v, ".fuente")]])
+    nn_base <- sum(!is.na(base[[v]]))
+    fuente_nn <- p$datos %>% filter(!is.na(.data[[v]]))
+    esperado <- if (identical(p$llave, c("mes", "rama"))) {
+      nrow(semi_join(fuente_nn, base, by = p$llave))
+    } else {
+      sum(base %>% count(pick(all_of(p$llave)), name = "n_filas") %>%
+            semi_join(fuente_nn, by = p$llave) %>% pull(n_filas))
+    }
+    if ("mes" %in% p$llave) {
+      m_base <- base$mes[!is.na(base[[v]])]
+      m_fuente <- if (identical(p$llave, "mes")) fuente_nn$mes[fuente_nn$mes %in% base$mes]
+                  else semi_join(fuente_nn, base, by = p$llave)$mes
+      rango_base <- rango_txt(m_base); rango_fuente <- rango_txt(m_fuente)
+    } else {
+      rango_base <- rango_fuente <- "no aplica"
+    }
+    tibble(pieza = id, fuente = p$fuente_id, cobertura_geografica = p$cobertura_geografica, variable = v,
+           valores_identicos_a_fuente = identicos, no_faltantes_base = nn_base, no_faltantes_esperados = esperado,
+           rango_en_base = rango_base, rango_fuente_dentro_del_panel = rango_fuente,
+           rango_fuente_completo = if ("mes" %in% names(fuente_nn)) rango_txt(fuente_nn$mes) else "no aplica")
+  })
+})
+registrar("CP8", "4. México vs. EE.UU.", "Cada variable conserva exactamente los valores de su fuente (no hay mezcla de fuentes ni países)",
+          all(verif$valores_identicos_a_fuente),
+          paste("Variables con diferencias:", paste(verif$variable[!verif$valores_identicos_a_fuente], collapse = ", ")))
+pref_mx <- grep("^(emim_|expo_|inpp_)", names(base), value = TRUE)
+pref_us <- grep("^eeuu_ip_", names(base), value = TRUE)
+registrar("CP8", "4. México vs. EE.UU.", "Las variables emim_/expo_/inpp_ provienen solo de fuentes mexicanas y eeuu_ip_ solo del G.17",
+          all(diccionario$fuente_id[diccionario$variable %in% pref_mx] %in% c("MX_PROD_01", "MX_EXP_01", "PRECIOS_01", "MX_PROD_01 + PRECIOS_01", "PRECIOS_01 + DOC_CORR")) &&
+            all(diccionario$fuente_id[diccionario$variable %in% pref_us] %in% c("US_PROD_01", "US_PROD_02")),
+          "Según el diccionario de variables")
+registrar("CP8", "4. México vs. EE.UU.", "La producción mexicana (emim_valor_produccion) y la de EE.UU. (eeuu_ip_*) son columnas distintas",
+          !any(pref_us %in% pref_mx) && "emim_valor_produccion" %in% names(base), "")
+# 5. Comunes constantes (ya comprobado en CP6B; se repite sobre la base final)
+comunes <- unlist(map(keep(piezas, ~ identical(.x$llave, "mes")), ~ setdiff(names(.x$datos), "mes")), use.names = FALSE)
+no_const <- keep(comunes, function(v) any((base %>% group_by(mes) %>% summarise(n = n_distinct(.data[[v]])))$n > 1))
+registrar("CP8", "5. Comunes", "Las variables comunes tienen el mismo valor en todas las ramas de cada mes", length(no_const) == 0,
+          if (length(no_const)) paste("No constantes:", paste(no_const, collapse = ", ")) else sprintf("%d variables comunes", length(comunes)))
+# 6. Sin multiplicación de filas
+registrar("CP8", "6. Filas", "Ninguna unión multiplicó filas y la base tiene tantas filas como el universo de llaves",
+          all(.reg$uniones$filas_antes == .reg$uniones$filas_despues) && nrow(base) == nrow(llaves),
+          sprintf("Universo: %d; base: %d", nrow(llaves), nrow(base)))
+# 7. Faltantes cuantificados
+faltantes_var <- faltantes_por_variable(base, vars_datos)
+registrar("CP8", "7. Faltantes", "Los faltantes están cuantificados para todas las variables",
+          sum(faltantes_var$n_faltantes) == sum(is.na(base[vars_datos])),
+          sprintf("%d celdas faltantes en %d variables", sum(faltantes_var$n_faltantes), length(vars_datos)))
+# 8. Rangos temporales
+difr <- verif %>% filter(rango_en_base != rango_fuente_dentro_del_panel)
+registrar("CP8", "8. Cobertura", "El rango de cada variable en la base coincide con el de su fuente (dentro del panel)", nrow(difr) == 0,
+          paste("Con diferencias:", paste(difr$variable, collapse = ", ")))
+# 9. Sin imputación ni pérdida
+difn <- verif %>% filter(no_faltantes_base != no_faltantes_esperados)
+registrar("CP8", "9. Sin imputación", "El número de valores no faltantes es exactamente el que aporta la fuente (ni más: imputación; ni menos: pérdida)",
+          nrow(difn) == 0, paste("Con diferencias:", paste(difn$variable, collapse = ", ")))
+codigo_rmd <- readLines(here::here("code", "R", "01_preparacion_base_integrada.Rmd"), encoding = "UTF-8", warn = FALSE)
+funciones_vetadas <- c("na.approx", "na.locf", "na.spline", "imputeTS", "approx(", "spline(", "replace_na(", "fill(")
+usos <- map_dfr(funciones_vetadas, ~ tibble(funcion = .x, linea = which(str_detect(codigo_rmd, fixed(.x))))) %>%
+  filter(!str_detect(codigo_rmd[linea], "funciones_vetadas"),
+         !str_detect(codigo_rmd[linea], fixed("td_d %>% fill(anio)")))  # único uso permitido: año de la tabla dinámica TD
+registrar("CP8", "9. Sin imputación", "El código no usa funciones de interpolación, arrastre o imputación sobre los datos",
+          nrow(usos) == 0,
+          if (nrow(usos)) paste("Revise las líneas:", paste(usos$linea, collapse = ", "))
+          else "Se revisó el propio .Rmd: solo aparece fill() para completar el año en la tabla dinámica TD (verificación), nunca sobre la base.")
+# 10. Unidades y definiciones documentadas
+registrar("CP8", "10. Diccionario", "Toda variable tiene descripción, unidad y fuente en el diccionario",
+          setequal(diccionario$variable, names(base)) && !anyNA(diccionario$unidad) && !anyNA(diccionario$fuente_id), "")
+por_confirmar <- diccionario$variable[str_detect(diccionario$unidad, "confirmar|efectiva")]
+revisar("CP8", "10. Diccionario", "Unidades por confirmar con la fuente", paste(por_confirmar, collapse = ", "))
+# 11. Reproducibilidad: los originales no cambiaron durante la ejecución
+md5_fin <- setNames(unname(tools::md5sum(vapply(fuentes$ruta, function(r) here::here(r), character(1)))), fuentes$id)
+registrar("CP8", "11. Reproducibilidad", "Los archivos originales no se modificaron durante la ejecución",
+          identical(md5_inicio, md5_fin), "Huellas MD5 al inicio y al final")
+tabla(verif, "Verificación de cada variable contra su fuente limpia", max_filas = 200, ancho_texto = 60)
+cerrar_checkpoint("CP8", "validaciones finales")
+```
+
+# Exportación a Excel
+
+## Checkpoint 9: escritura y verificación del archivo
+
+El libro contiene la hoja principal `base_integrada` y cuatro hojas auxiliares de documentación (`diccionario`, `cobertura`, `validaciones`, `faltantes`), que **no** son bases alternativas. Primero se escribe un archivo temporal, se vuelve a leer y se compara con la base en R (prueba 12); solo si coincide se guarda con el nombre definitivo.
+
+```{r exportacion}
+titulo_checkpoint("CHECKPOINT 9 · Exportación y verificación del Excel")
+
+# ---- Hoja cobertura --------------------------------------------------------------------------
+cobertura <- bind_rows(
+  verif %>% transmute(tipo = "variable integrada", fuente, variable, cobertura_geografica,
+                      periodo_en_fuente = rango_fuente_completo, periodo_en_base = rango_en_base,
+                      no_faltantes_en_base = no_faltantes_base,
+                      nota = if_else(rango_fuente_completo != rango_en_base,
+                                     "La fuente tiene meses fuera del panel; no se pierden en la fuente, solo no hay filas mes-rama para ellos.", "")),
+  if (decisiones$calcular_valor_produccion_real)
+    tibble(tipo = "variable derivada", fuente = "MX_PROD_01 + PRECIOS_01", variable = "emim_valor_produccion_real",
+           cobertura_geografica = "México", periodo_en_fuente = NA_character_,
+           periodo_en_base = rango_txt(base$mes[!is.na(base$emim_valor_produccion_real)]),
+           no_faltantes_en_base = sum(!is.na(base$emim_valor_produccion_real)), nota = "Decisión D4"),
+  tribble(
+    ~tipo, ~fuente, ~variable, ~cobertura_geografica, ~periodo_en_fuente, ~nota,
+    "fuente no integrada", "MX_ARAN_01", "códigos no manufactureros (11xx, 21xx, 9xxx)", "EE.UU. <- México", rango_txt(census_no_manuf$mes), "Fuera del alcance: solo manufacturas (decisión 3 de las notas).",
+    "fuente no integrada", "MX_ARAN_02", "tasa efectiva (formato ancho)", "EE.UU. <- México", rango_txt(a2_largo$mes), "Duplicado de MX_ARAN_01; solo verificación.",
+    "fuente no integrada", "MX_EXP_01", "hoja Autopartes", "México", "2019-01 a 2026-07 (aprox.)", "Hoja de trabajo del usuario; origen no documentado.",
+    "fuente no integrada", "INC_01", "TPU_QUARTERLY (TPUQ, TARIFFVOL)", "EE.UU.", paste(tpu_trim$trimestre[1], "a", tail(tpu_trim$trimestre, 1)), "Frecuencia trimestral.",
+    "fuente no integrada", "INC_01", "TPU_DAILY", "EE.UU.", paste(min(tpu_diario$fecha, na.rm = TRUE), "a", max(tpu_diario$fecha, na.rm = TRUE)), "Frecuencia diaria.",
+    "fuente no integrada", "US_PROD_01", "series G.17 sin código NAICS de 3 o 4 dígitos idéntico", "EE.UU.", rango_txt(ip_largo$mes), "Requieren una regla de correspondencia.",
+    "fuente no integrada", "INC_02", "WUI/WTUI/WPUI de otros países", "69 países", rango_txt(wui_largo$mes), "Solo se integran los países de la decisión D7.",
+    "fuente no integrada", "PRECIOS_01", "INPP de sectores, total y servicios", "México", rango_txt(inpp_largo$mes), "Solo se usa el INPP de los 21 subsectores manufactureros."
+  ),
+  if (is.null(vix_mensual))
+    tibble(tipo = "fuente no integrada", fuente = "MACRO_02", variable = "VIX diario", cobertura_geografica = "EE.UU.",
+           periodo_en_fuente = paste(min(vix$fecha), "a", max(vix$fecha)), nota = "Falta la regla de conversión a mensual (D6).")
+)
+
+# ---- Hoja faltantes ---------------------------------------------------------------------------
+na_largo <- base %>% select(mes, periodo, rama, all_of(vars_datos)) %>%
+  mutate(across(all_of(vars_datos), is.na)) %>%
+  pivot_longer(all_of(vars_datos), names_to = "variable", values_to = "es_na")
+faltantes <- bind_rows(
+  faltantes_var %>% transmute(dimension = "variable (total)", variable, rama = NA_character_, periodo = NA_character_,
+                              observaciones = n, faltantes = n_faltantes, pct_faltantes),
+  na_largo %>% group_by(variable, rama) %>% summarise(observaciones = n(), faltantes = sum(es_na), .groups = "drop") %>%
+    filter(faltantes > 0) %>% mutate(dimension = "variable x rama", periodo = NA_character_, pct_faltantes = round(100 * faltantes / observaciones, 2)),
+  na_largo %>% group_by(variable, periodo) %>% summarise(observaciones = n(), faltantes = sum(es_na), .groups = "drop") %>%
+    filter(faltantes > 0) %>% mutate(dimension = "variable x mes", rama = NA_character_, pct_faltantes = round(100 * faltantes / observaciones, 2))
+) %>% select(dimension, variable, rama, periodo, observaciones, faltantes, pct_faltantes)
+
+# ---- Libro -----------------------------------------------------------------------------------
+construir_libro <- function(validaciones) {
+  wb <- createWorkbook()
+  est_enc <- createStyle(textDecoration = "bold", fgFill = "#DCE6F1", border = "bottom", wrapText = TRUE)
+  est_mes <- createStyle(numFmt = "yyyy-mm")
+  hojas <- list(base_integrada = base, diccionario = diccionario, cobertura = cobertura,
+                validaciones = validaciones, faltantes = faltantes)
+  for (h in names(hojas)) {
+    addWorksheet(wb, h)
+    writeData(wb, h, hojas[[h]], headerStyle = est_enc, withFilter = TRUE, keepNA = FALSE)
+    if (h != "base_integrada") freezePane(wb, h, firstRow = TRUE)
+    setColWidths(wb, h, cols = seq_len(ncol(hojas[[h]])), widths = if (h == "base_integrada") 16 else 30)
+  }
+  addStyle(wb, "base_integrada", est_mes, rows = seq_len(nrow(base)) + 1, cols = which(names(base) == "mes"), gridExpand = TRUE)
+  freezePane(wb, "base_integrada", firstActiveRow = 2, firstActiveCol = 4)
+  wb
+}
+dir.create(DIR_PROCESADOS, showWarnings = FALSE, recursive = TRUE)
+ruta_tmp <- file.path(DIR_PROCESADOS, paste0(".tmp_", format(Sys.time(), "%Y%m%d%H%M%S"), ".xlsx"))
+saveWorkbook(construir_libro(.reg$checks), ruta_tmp, overwrite = TRUE)
+
+# ---- 12. Verificación del archivo escrito -------------------------------------------------------
+leida <- readxl::read_excel(ruta_tmp, sheet = "base_integrada", guess_max = nrow(base) + 1)
+leida$mes <- as.Date(leida$mes)
+comparar_col <- function(v) {
+  a <- base[[v]]; b <- leida[[v]]
+  if (is.null(b)) return(FALSE)
+  if (all(is.na(a))) return(all(is.na(b)))
+  if (is.numeric(a)) return(is.numeric(b) && isTRUE(all.equal(a, b, tolerance = 1e-10)))
+  if (inherits(a, "Date")) return(identical(a, as.Date(b)))
+  if (is.logical(a)) return(identical(a, as.logical(b)))
+  identical(as.character(a), as.character(b))
+}
+cols_ok <- map_lgl(names(base), comparar_col)
+registrar("CP9", "12. Excel", "La hoja base_integrada tiene las mismas filas y columnas que la base en R",
+          nrow(leida) == nrow(base) && identical(names(leida), names(base)),
+          sprintf("R: %d × %d; Excel: %d × %d", nrow(base), ncol(base), nrow(leida), ncol(leida)))
+registrar("CP9", "12. Excel", "Todos los valores coinciden (números, fechas, texto y lógicos)", all(cols_ok),
+          paste("Columnas con diferencias:", paste(names(base)[!cols_ok], collapse = ", ")))
+registrar("CP9", "12. Excel", "Los códigos de rama se guardaron como texto", is.character(leida$rama) && identical(leida$rama, base$rama), "")
+registrar("CP9", "12. Excel", "El libro contiene exactamente las hojas previstas",
+          identical(readxl::excel_sheets(ruta_tmp), c("base_integrada", "diccionario", "cobertura", "validaciones", "faltantes")),
+          paste(readxl::excel_sheets(ruta_tmp), collapse = ", "))
+
+errores_exp <- filter(.reg$checks, checkpoint == "CP9", estado == "ERROR")
+if (nrow(errores_exp) == 0) {
+  # Se reescribe con la hoja 'validaciones' completa (incluye la prueba 12) y se da el nombre definitivo.
+  saveWorkbook(construir_libro(.reg$checks), RUTA_EXCEL_FINAL, overwrite = TRUE)
+  unlink(ruta_tmp)
+  final <- readxl::read_excel(RUTA_EXCEL_FINAL, sheet = "base_integrada", guess_max = nrow(base) + 1)
+  exigir(nrow(final) == nrow(base) && identical(names(final), names(base)),
+         "El archivo final no coincide con la base validada. Borre ", RUTA_EXCEL_FINAL, " y vuelva a ejecutar.")
+  aviso(sprintf("<b>Excel exportado:</b> <code>%s</code> (%d filas × %d columnas en <code>base_integrada</code>).",
+                esc_html(sub(paste0(RAIZ, "/"), "", RUTA_EXCEL_FINAL, fixed = TRUE)), nrow(base), ncol(base)), "ok")
+} else {
+  unlink(ruta_tmp)
+}
+cerrar_checkpoint("CP9", "exportación")
+```
+
+# Resumen general de validaciones y decisiones pendientes
+
+```{r resumen-final}
+tabla(.reg$checks %>% count(checkpoint, estado) %>% pivot_wider(names_from = estado, values_from = n, values_fill = 0),
+      "Comprobaciones por checkpoint y estado")
+tabla(.reg$checks %>% filter(estado == "REVISAR") %>% select(checkpoint, fuente, prueba, resultado),
+      "Todo lo que requiere su revisión (estado REVISAR)", max_filas = 300, ancho_texto = 400)
+```
+
+**Decisiones de limpieza e integración que requieren su revisión** (además de la tabla anterior):
+
+1. **Universo del panel (D1).** Con el Census en el universo, 85 ramas empiezan en 2013-01 y la rama 3328 (sin datos del Census) en 2018-01. Si prefiere un panel que empiece con la EMIM, quite `MX_ARAN_01` de `universo_llaves` (los aranceles se seguirán pegando a los meses de la EMIM).
+2. **NAICS = SCIAN por código (D2, D3).** Aranceles del Census y producción de EE.UU. se asignan por identidad del código. Compare las descripciones en la tabla de correspondencias del checkpoint 4.
+3. **Producción de EE.UU. (D3).** El archivo G.17 no tiene total nacional. Si quiere un control agregado de demanda externa (por ejemplo, el índice total de producción industrial o de manufactura de EE.UU.), hay que descargar esa serie; no se construye sumando series.
+4. **Medida WTUI (D7).** Las notas acuerdan usar la WTUI, pero no el país. La base trae `wtui_mex`, `wtui_usa` y `wtui_mundo_pib`. Ojo: `wtui_mex` vale 0 en la mayoría de los meses.
+5. **VIX (D6).** Sin regla de conversión, no se integra. Elija `promedio_mensual` o `ultimo_dato_del_mes`.
+6. **Deflactor (D4).** Base efectiva del INPP jul-2019=100 (el título dice jul-2025) e INPP de mercancías finales, a nivel de subsector.
+7. **Unidades.** EMIM en miles de pesos; exportaciones en pesos. No se convirtió nada.
+8. **Series no integradas:** TPU trimestral (con `TARIFFVOL`) y diaria, hoja `Autopartes`, códigos no manufactureros del Census, series G.17 con rangos o partes de industria, INPP de sectores no manufactureros.
+9. **Otros controles** (TIIE, tipo de cambio real, etc.): no existen en los archivos del repositorio.
+
+# Información de la sesión
+
+```{r sesion}
+tabla(tibble(paquete = paquetes, version = map_chr(paquetes, ~ as.character(utils::packageVersion(.x)))),
+      "Versiones de los paquetes usados")
+cat("<pre>", esc_html(paste(utils::capture.output(sessionInfo()), collapse = "\n")), "</pre>")
+cat("\n\n**Fin de la ejecución:** ", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n", sep = "")
+```
