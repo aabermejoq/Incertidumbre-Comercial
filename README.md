@@ -135,7 +135,7 @@ El detalle está en la sección 0 de las [notas metodológicas](docs/notas_metod
 | Correspondencia rama–deflactor | Completada (86 ramas → 21 subsectores INPP) |
 | Limpieza de datos | Ejecutada con `code/Python/01_preparacion_base_integrada.ipynb` (versión ejecutable del R Markdown `code/R/01_preparacion_base_integrada.Rmd`) |
 | Integración de fuentes | Ejecutada: `data/processed/base_incertidumbre_comercial_mexico.xlsx` (8,858 filas mes-rama, 2018-01 a 2026-07, 54 columnas) y reporte en `outputs/reports/01_preparacion_base_integrada.html` |
-| Estimación econométrica | Primera estimación: local projections con exposición (`code/Python/02_local_projections.ipynb`, reporte en `outputs/reports/02_local_projections.html`) |
+| Estimación econométrica | Local projections con exposición, especificación revisada el 2026-10-01: cambio acumulado, efectos fijos rama × mes del calendario, tipo de cambio × exposición, inferencia por permutación y placebos (`code/Python/02_local_projections.ipynb`, reporte en `outputs/reports/02_local_projections.html`; decisiones 15-20 en `docs/notas_metodologicas.md`) |
 
 ## Próximos pasos
 

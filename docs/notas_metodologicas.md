@@ -24,6 +24,15 @@ Registradas el 2026-09-24, al revisar el R Markdown de integración (`code/R/01_
 13. **VIX:** se convierte a mensual con el promedio de los días con dato.
 14. **Unidades monetarias:** todas se expresan también en miles de pesos reales de julio de 2019, deflactadas con el INPP del subsector. Los dólares se convierten antes con el FIX promedio del mes. Se conservan las variables nominales originales.
 
+Registradas el 2026-10-01, al revisar la especificación de las local projections (`code/Python/02_local_projections.ipynb`):
+
+15. **Variable dependiente:** cambio acumulado log y(i,t+h) − log y(i,t−1), en lugar de la variación a 12 meses. Δ12 en el horizonte h mezcla meses anteriores al choque y, desde h = 12, resta la respuesta del año anterior: la autocorrelación de Δ12 a 12 meses es −0.36 en producción y −0.42 en horas. Los controles siguen en variación a 12 meses; los rezagos de producción, empleo y horas entran en variación mensual.
+16. **Estacionalidad y calendario:** efectos fijos de rama × mes del calendario (más efectos de mes en la especificación A). Días hábiles (lunes a viernes menos feriados de la LFT y jueves y viernes santos) como control en B; en A los absorben los efectos de mes.
+17. **Tipo de cambio y VIX en A:** entran Δ12 TC × exposición y Δ12 VIX × exposición, rezagados 1 a 3 meses.
+18. **Inferencia:** valores p por permutación de la sorpresa del TPU (1,000 permutaciones, las mismas en todos los horizontes, con pruebas conjuntas). Con sorpresas falsas, Driscoll-Kraay rechazaba cerca de 40% de las veces al 10%; se reporta solo como referencia. La LP suavizada y el bootstrap por bloques de meses se retiraron porque dependían de la misma especificación en Δ12; los resultados anteriores quedan en `outputs/tables/lp_resultados_especificacion_anterior.csv`.
+19. **Placebos y pandemia:** se estiman los horizontes h = −12 a −5 como placebos. Se excluye una observación de la muestra sin pandemia si cualquier mes entre t−1 y t+h cae entre 2020-03 y 2021-06.
+20. **Especificación principal:** la A (exposición diferencial). La B (efecto promedio) se identifica solo con la variación en el tiempo y se reporta como descriptiva.
+
 ## 1. Cobertura temporal y frecuencia
 
 | Fuente | Frecuencia | Inicio | Fin |
