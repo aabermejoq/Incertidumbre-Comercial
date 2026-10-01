@@ -86,7 +86,7 @@ Ver las [notas metodológicas](docs/notas_metodologicas.md).
 │   │   ├── produccion_mexico/            EMIM (INEGI)
 │   │   ├── exportaciones/                Exportaciones por SCIAN
 │   │   ├── aranceles/                    Importaciones y aranceles de EE.UU. desde México (Census)
-│   │   ├── produccion_estados_unidos/    Producción industrial de EE.UU. (G.17) y su catálogo
+│   │   ├── produccion_estados_unidos/    Producción industrial de EE.UU. (G.17 por industria, total y manufactura) y catálogo
 │   │   ├── incertidumbre/                TPU, WUI/WTUI/WPUI y EPU México
 │   │   ├── precios/                      INPP por origen (deflactores)
 │   │   └── controles_macroeconomicos/    Tipo de cambio FIX y VIX
@@ -134,7 +134,7 @@ El detalle está en la sección 0 de las [notas metodológicas](docs/notas_metod
 | Inspección de metadatos | Completada para los 12 archivos de datos: todas las hojas, dimensiones, encabezados, cobertura y códigos de clasificación. No se revisaron todas las celdas. |
 | Correspondencia rama–deflactor | Completada (86 ramas → 21 subsectores INPP) |
 | Limpieza de datos | Ejecutada con `code/Python/01_preparacion_base_integrada.ipynb` (versión ejecutable del R Markdown `code/R/01_preparacion_base_integrada.Rmd`) |
-| Integración de fuentes | Ejecutada: `data/processed/base_incertidumbre_comercial_mexico.xlsx` (8,858 filas mes-rama, 2018-01 a 2026-07, 52 columnas) y reporte en `outputs/reports/01_preparacion_base_integrada.html` |
+| Integración de fuentes | Ejecutada: `data/processed/base_incertidumbre_comercial_mexico.xlsx` (8,858 filas mes-rama, 2018-01 a 2026-07, 54 columnas) y reporte en `outputs/reports/01_preparacion_base_integrada.html` |
 | Estimación econométrica | Primera estimación: local projections con exposición (`code/Python/02_local_projections.ipynb`, reporte en `outputs/reports/02_local_projections.html`) |
 
 ## Próximos pasos
