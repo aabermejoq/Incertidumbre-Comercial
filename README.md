@@ -121,7 +121,7 @@ Se usará el **valor real de la producción manufacturera** (SCIAN 31-33) de la 
 
 Las tres medidas de incertidumbre son TPU, WTUI y EPU México, y el VIX se usará como control de incertidumbre financiera global. Los valores confidenciales se tratarán como faltantes y el análisis usará información completa, que empieza en 2019-01.
 
-El panel integrado empieza en 2018-01. La correspondencia NAICS = SCIAN por código se verificó con los clasificadores oficiales de INEGI y del Census. Todas las variables monetarias se expresan también en miles de pesos reales de julio de 2019. El VIX se convierte a mensual con el promedio mensual.
+El panel integrado empieza en 2018-01. La exposición de cada rama se mide con el coeficiente de exportación de la MIP 2018 (`mip_coef_exportacion_2018`). La correspondencia NAICS = SCIAN por código se verificó con los clasificadores oficiales de INEGI y del Census. Todas las variables monetarias se expresan también en miles de pesos reales de julio de 2019. El VIX se convierte a mensual con el promedio mensual.
 
 El detalle está en la sección 0 de las [notas metodológicas](docs/notas_metodologicas.md).
 
@@ -134,7 +134,7 @@ El detalle está en la sección 0 de las [notas metodológicas](docs/notas_metod
 | Inspección de metadatos | Completada para los 12 archivos de datos: todas las hojas, dimensiones, encabezados, cobertura y códigos de clasificación. No se revisaron todas las celdas. |
 | Correspondencia rama–deflactor | Completada (86 ramas → 21 subsectores INPP) |
 | Limpieza de datos | Ejecutada con `code/Python/01_preparacion_base_integrada.ipynb` (versión ejecutable del R Markdown `code/R/01_preparacion_base_integrada.Rmd`) |
-| Integración de fuentes | Ejecutada: `data/processed/base_incertidumbre_comercial_mexico.xlsx` (8,858 filas mes-rama, 2018-01 a 2026-07) y reporte en `outputs/reports/01_preparacion_base_integrada.html` |
+| Integración de fuentes | Ejecutada: `data/processed/base_incertidumbre_comercial_mexico.xlsx` (8,858 filas mes-rama, 2018-01 a 2026-07, 52 columnas) y reporte en `outputs/reports/01_preparacion_base_integrada.html` |
 | Estimación econométrica | Pendiente |
 
 ## Próximos pasos
