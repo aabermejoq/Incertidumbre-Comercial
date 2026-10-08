@@ -145,7 +145,8 @@ ESPECS = {"produccion": ["E0", "E1", "E2", "E3", "E4", "E5"], "empleo": ["E0", "
 
 def estimar(y, spec, excluir_pandemia, muestra_comun):
     """Devuelve, por rama, la media de β_0 en h=0..12 y en h=−6..−1 (real y permutadas), y el BIC medio."""
-    out, bics = [], []
+    global IRF_ULTIMA
+    out, bics, por_h = [], [], {h: [] for h in H_PRE + H_POST}
     for rama in ramas:
         sel = (P.rama == rama).values
         b = {}
@@ -182,9 +183,12 @@ def estimar(y, spec, excluir_pandemia, muestra_comun):
                 bics.append(n * np.log(e @ e / n) + kk * np.log(n))
         if b is None:
             continue
+        for h in b:
+            por_h[h].append(b[h])
         post = 100 * AGREGA([b[h] for h in H_POST], axis=0)
         pre = 100 * AGREGA([b[h] for h in H_PRE], axis=0)
         out.append(dict(rama=rama, sens=post[0], nulos=post[1:], pre=pre[0], nulos_pre=pre[1:]))
+    IRF_ULTIMA = {h: 100 * np.mean(v, axis=0) for h, v in por_h.items() if v}   # promedio de las ramas por horizonte (real y permutadas), en %
     return pd.DataFrame(out), float(np.mean(bics))
 
 def mascara_comun(y, specs, excluir_pandemia):
@@ -211,6 +215,8 @@ def resumen(df):
     return dict(efecto_medio=mu, ee=mu0.std(), p=float(np.mean(np.abs(mu0) >= abs(mu))), p_heterogeneidad=float(np.mean(Qn >= Qo)),
                 placebo_medio=pre, p_placebo=float(np.mean(np.abs(pre0) >= abs(pre))), ramas=len(df))
 
+if __name__ != "__main__":
+    raise SystemExit   # importado: solo definiciones (ver 05_irf_promedio.py)
 filas, guardado = [], {}
 if SIN_CHOQUES_2020:
     ESPECS = {"produccion": ["E1"], "empleo": ["E0"], "horas": ["E1"], "exportaciones": ["T1"], "importaciones_eeuu": ["T1"]}
