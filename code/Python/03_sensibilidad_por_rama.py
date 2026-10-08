@@ -1,7 +1,7 @@
 """Sensibilidad de cada rama a un choque limpio de incertidumbre comercial.
 
-Paso 1. Choque limpio (VAR por bloques, mensual 2008-2026). Variables en logaritmos:
-        producción industrial de EE.UU., VIX, EPU México, WUI mundial, WPUI mundial y TPU, con 6 rezagos.
+Paso 1. Choque limpio (VAR recursivo mensual, 1990-2026). Variables en logaritmos:
+        producción industrial de EE.UU., VIX y TPU, con 6 rezagos.
         - Choque A (principal, conservador): innovación del TPU ortogonal a los rezagos de todo y a los valores
           contemporáneos de las demás variables (TPU al final del orden de Cholesky).
         - Choque B (robustez): innovación del TPU ortogonal solo a los rezagos (TPU primero en el orden).
@@ -43,31 +43,25 @@ tpu = mensual(pd.read_excel(RAW / "incertidumbre/tpu_caldara_iacoviello.xlsx", s
 vix_d = pd.read_csv(RAW / "controles_macroeconomicos/fred_vix_diario.csv", na_values=[".", ""], parse_dates=["observation_date"])
 vix = vix_d.dropna().set_index("observation_date").VIXCLS.resample("MS").mean()
 ip = mensual(pd.read_csv(RAW / "produccion_estados_unidos/fred_indpro_mensual.csv", parse_dates=["observation_date"]).set_index("observation_date").INDPRO)
-ep = pd.read_excel(RAW / "incertidumbre/epu_mexico_baker_bloom_davis.xlsx")
-ep = ep[pd.to_numeric(ep.Year, errors="coerce").notna()]
-epu = pd.Series(ep.iloc[:, 2].astype(float).values, index=pd.to_datetime(dict(year=ep.Year.astype(int), month=ep.Month.astype(int), day=1)))
-def wui_mundo(hoja):
-    x = pd.read_excel(RAW / "incertidumbre/wui_ahir_bloom_furceri_2026_08.xlsx", sheet_name=hoja, header=2, usecols="A:B").dropna()
-    return mensual(x.set_index("date").iloc[:, 0])
-wui, wpui = wui_mundo("F1"), wui_mundo("F3")
 
-V = pd.DataFrame({"ip": ip, "vix": vix, "epu": epu, "wui": wui, "wpui": wpui, "tpu": tpu}).dropna()
+V = pd.DataFrame({"ip": ip, "vix": vix, "tpu": tpu}).dropna()
+OTRAS = ["ip", "vix"]
 V = np.log(V)
 X = pd.concat({f"{c}_l{l}": V[c].shift(l) for c in V for l in range(1, P_VAR + 1)}, axis=1)
 d = pd.concat([V, X], axis=1).dropna()
 rez = sm.OLS(d.tpu, sm.add_constant(d[X.columns])).fit()
-contemp = sm.OLS(d.tpu, sm.add_constant(d[list(X.columns) + ["ip", "vix", "epu", "wui", "wpui"]])).fit()
+contemp = sm.OLS(d.tpu, sm.add_constant(d[list(X.columns) + OTRAS])).fit()
 choques = pd.DataFrame({"choque_A_tpu_ultimo": contemp.resid, "choque_B_tpu_primero": rez.resid})
 viejo = pd.read_csv(RAIZ / "outputs/tables/sorpresa_tpu.csv", parse_dates=["mes"]).set_index("mes").sorpresa_tpu
 en_v = choques.loc[VENTANA[0]:VENTANA[1]]
 ESC = en_v.std()
 choques_std = choques / ESC
 print(f"VAR: {d.index.min():%Y-%m} a {d.index.max():%Y-%m} ({len(d)} meses), {P_VAR} rezagos")
-print(f"R² TPU solo con rezagos: {rez.rsquared:.3f}; con valores contemporáneos de las otras incertidumbres e IP: {contemp.rsquared:.3f}")
+print(f"R² TPU solo con rezagos: {rez.rsquared:.3f}; con valores contemporáneos de IP y VIX: {contemp.rsquared:.3f}")
 print("Parte de la innovación del TPU explicada por las otras variables en el mismo mes:",
       f"{1 - contemp.resid.var() / rez.resid.var():.1%}")
-print("Coeficientes contemporáneos (log):", contemp.params[["ip", "vix", "epu", "wui", "wpui"]].round(3).to_dict(),
-      "| valores p:", contemp.pvalues[["ip", "vix", "epu", "wui", "wpui"]].round(3).to_dict())
+print("Coeficientes contemporáneos (log):", contemp.params[OTRAS].round(3).to_dict(), "| valores p:", contemp.pvalues[OTRAS].round(3).to_dict())
+print("1 desv. est. del choque (2018-2026), en log:", choques.loc[VENTANA[0]:VENTANA[1]].std().round(3).to_dict())
 print("Correlaciones 2018-2026:", pd.concat([en_v, viejo.rename("sorpresa_anterior")], axis=1).dropna().corr().round(3).iloc[0].to_dict())
 choques_std.rename_axis("mes").to_csv(RAIZ / "outputs/tables/choque_tpu_limpio.csv")
 
