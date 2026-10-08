@@ -19,9 +19,12 @@ salvo E3b, que tiene su propia muestra. Regla de selección fijada antes de ver 
   2) entre las válidas, la de menor BIC promedio (mejor ajuste de los controles).
 Inferencia: 1,000 permutaciones de la serie del choque, comunes a ramas y horizontes. Heterogeneidad y encogimiento como en 03.
 
-Uso (desde code/Python):  python 04_especificaciones_por_rama.py
-Salidas: outputs/tables/especificaciones_resumen.csv, outputs/tables/sensibilidad_por_rama_mejor.csv
+Uso (desde code/Python):  python 04_especificaciones_por_rama.py          (variaciones anuales, Δ12)
+                          python 04_especificaciones_por_rama.py 1        (variaciones mensuales, Δ1, en todas las variables;
+                                                                           sensibilidad = SUMA de β_h, efecto acumulado en el nivel)
+Salidas: outputs/tables/especificaciones_resumen[_mensual].csv, outputs/tables/sensibilidad_por_rama_mejor[_mensual].csv
 """
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -35,6 +38,10 @@ N_PERM = 1000
 H_PRE, H_POST = list(range(-6, 0)), list(range(0, 13))
 PANDEMIA = (pd.Timestamp("2020-03-01"), pd.Timestamp("2021-06-01"))
 FIN = pd.Timestamp("2026-07-01")
+DIF = int(sys.argv[1]) if len(sys.argv) > 1 else 12              # 12 = variación anual; 1 = variación mensual
+SUF = "" if DIF == 12 else "_mensual"
+AGREGA = np.mean if DIF == 12 else np.sum                         # mensual: suma = efecto acumulado en el nivel
+print(f"Variaciones: Δ{DIF}; sensibilidad = {'promedio' if DIF == 12 else 'suma'} de β_h")
 
 # ------------------------------------------------------------------ datos
 base = pd.read_excel(RAIZ / "data/processed/base_incertidumbre_comercial_mexico.xlsx", sheet_name="base_integrada", dtype={"rama": str})
@@ -70,8 +77,8 @@ def en_fecha(col, k):
     aux = P[["rama", "mes", col]].assign(mes=P.mes - pd.DateOffset(months=k))
     return P[["rama", "mes"]].merge(aux, on=["rama", "mes"], how="left", validate="one_to_one")[col].values
 for c in ["l_" + k for k in NIV] + ["lip", "ltc", "lvix", "arancel"]:
-    P["d12_" + c] = P[c] - en_fecha(c, -12)
-D12 = lambda k: "d12_l_" + k
+    P[f"d{DIF}_" + c] = P[c] - en_fecha(c, -DIF)
+D12 = lambda k: f"d{DIF}_l_" + k
 
 MESES_S = pd.date_range("2012-09-01", FIN, freq="MS")
 POS = pd.Series(np.arange(len(MESES_S)), index=MESES_S)
@@ -88,7 +95,7 @@ def rez(col, l):
     return _REZ[(col, l)]
 
 def controles(y, spec):
-    W = {"ip": P.d12_lip.values, "tc_l1": rez("d12_ltc", 1), "vix_l1": rez("d12_lvix", 1)}
+    W = {"ip": P[f"d{DIF}_lip"].values, "tc_l1": rez(f"d{DIF}_ltc", 1), "vix_l1": rez(f"d{DIF}_lvix", 1)}
     emim = ["produccion", "empleo", "horas"]
     if spec in ("E1", "T1", "T2"):
         for l in (range(1, 4) if spec == "T2" else [1]):
@@ -109,7 +116,7 @@ def preparar(y, spec, h):
     if (y, spec, h) in _CACHE:
         return _CACHE[(y, spec, h)]
     W = controles(y, spec)
-    W["arancel_h"] = rez("d12_arancel", -h)
+    W["arancel_h"] = rez(f"d{DIF}_arancel", -h)
     yh = rez(D12(y), -h)
     lags_s = [0, 1, 2, 3] if spec == "E5" else [0, 1]
     _CACHE[(y, spec, h)] = (yh, W, lags_s)
@@ -134,7 +141,7 @@ def estimar(y, spec, excluir_pandemia, muestra_comun):
             if muestra_comun is not None:
                 ok &= muestra_comun[h]
             if excluir_pandemia:
-                ini = P.mes + pd.DateOffset(months=min(h - 12, -1)); fin = P.mes + pd.DateOffset(months=max(h, 0))
+                ini = P.mes + pd.DateOffset(months=min(h - DIF, -1)); fin = P.mes + pd.DateOffset(months=max(h, 0))
                 ok &= ~((ini <= PANDEMIA[1]) & (fin >= PANDEMIA[0])).values
             idx = np.flatnonzero(ok)
             if len(idx) < 30:
@@ -153,8 +160,8 @@ def estimar(y, spec, excluir_pandemia, muestra_comun):
                 bics.append(n * np.log(e @ e / n) + kk * np.log(n))
         if b is None:
             continue
-        post = 100 * np.mean([b[h] for h in H_POST], axis=0)
-        pre = 100 * np.mean([b[h] for h in H_PRE], axis=0)
+        post = 100 * AGREGA([b[h] for h in H_POST], axis=0)
+        pre = 100 * AGREGA([b[h] for h in H_PRE], axis=0)
         out.append(dict(rama=rama, sens=post[0], nulos=post[1:], pre=pre[0], nulos_pre=pre[1:]))
     return pd.DataFrame(out), float(np.mean(bics))
 
@@ -203,7 +210,7 @@ comparables = tab[~tab.especificacion.str.startswith("E3b")]
 validas = comparables[comparables.p_placebo > 0.10]
 mejor = validas.loc[validas.groupby(["variable", "muestra"]).bic_medio.idxmin()]
 tab["elegida"] = tab.index.isin(mejor.index)
-tab.to_csv(RAIZ / "outputs/tables/especificaciones_resumen.csv", index=False)
+tab.to_csv(RAIZ / f"outputs/tables/especificaciones_resumen{SUF}.csv", index=False)
 print("\nEspecificación elegida (placebo p > 0.10 y menor BIC):")
 print(mejor[["variable", "muestra", "especificacion", "efecto_medio", "ee", "p", "p_heterogeneidad", "placebo_medio", "p_placebo"]].round(3).to_string(index=False))
 
@@ -225,5 +232,5 @@ for _, m in mejor.iterrows():
     post = mu + pred + lam * (d - pred); sd = np.sqrt(mu0.var() + lam * s2)
     res.append(df.drop(columns=["nulos", "nulos_pre"]).assign(variable=m.variable, muestra=m.muestra, especificacion=m.especificacion,
                ee=np.sqrt(s2 + mu0.var()), sens_post=post, sd_post=sd, prob_negativo=norm.cdf(-post / sd), tau=np.sqrt(t2)))
-pd.concat(res).to_csv(RAIZ / "outputs/tables/sensibilidad_por_rama_mejor.csv", index=False)
-print("Guardado: outputs/tables/especificaciones_resumen.csv y outputs/tables/sensibilidad_por_rama_mejor.csv")
+pd.concat(res).to_csv(RAIZ / f"outputs/tables/sensibilidad_por_rama_mejor{SUF}.csv", index=False)
+print(f"Guardado: outputs/tables/especificaciones_resumen{SUF}.csv y outputs/tables/sensibilidad_por_rama_mejor{SUF}.csv")
