@@ -108,28 +108,31 @@ def rez(col, l):
         _REZ[(col, l)] = en_fecha(col, -l)
     return _REZ[(col, l)]
 
-def controles(y, spec):
+def controles(y, spec, d=0):
+    """Controles. Los rezagos de variables de actividad y comercio se fechan en t+d−l con d = min(h, 0): en los horizontes
+    placebo (h < 0) quedan antes del mes de la variable dependiente; si se fecharan en t−l, para h = −1 el control sería la
+    propia variable dependiente (coeficiente cero mecánico) y para h ≤ −2 sería posterior a ella."""
     W = {"ip": P[f"d{DIF}_lip"].values, "tc_l1": rez(f"d{DIF}_ltc", 1), "vix_l1": rez(f"d{DIF}_lvix", 1)}
     emim = ["produccion", "empleo", "horas"]
     if spec in ("E1", "T1", "T2"):
         for l in (range(1, 4) if spec == "T2" else [1]):
-            W[f"{y}_l{l}"] = rez(D12(y), l)
+            W[f"{y}_l{l}"] = rez(D12(y), l - d)
     if spec in ("E2", "E3", "E4", "E5", "E3b"):
         for v in emim:
             for l in (range(1, 4) if spec == "E4" else [1]):
-                W[f"{v}_l{l}"] = rez(D12(v), l)
+                W[f"{v}_l{l}"] = rez(D12(v), l - d)
     if spec in ("E3", "E4", "E5"):
         for l in (range(1, 4) if spec == "E4" else [1]):
-            W[f"imp_l{l}"] = rez(D12("importaciones_eeuu"), l)
+            W[f"imp_l{l}"] = rez(D12("importaciones_eeuu"), l - d)
     if spec == "E3b":
-        W["expo_l1"] = rez(D12("exportaciones"), 1)
+        W["expo_l1"] = rez(D12("exportaciones"), 1 - d)
     return W
 
 _CACHE = {}
 def preparar(y, spec, h):
     if (y, spec, h) in _CACHE:
         return _CACHE[(y, spec, h)]
-    W = controles(y, spec)
+    W = controles(y, spec, min(h, 0))
     W["arancel_h"] = rez(f"d{DIF}_arancel", -h)
     if COVID:
         W["covid_h"] = rez(f"d{DIF}_lcovid", -h)

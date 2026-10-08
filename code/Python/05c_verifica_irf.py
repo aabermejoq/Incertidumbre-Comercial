@@ -19,7 +19,7 @@ for r in ramas:
     bs = {}
     for h in H:
         X = pd.DataFrame({"s0": d.s0, "s1": d.s1, "ip": d.d1_lip, "tc_l1": d.d1_ltc.shift(1), "vix_l1": d.d1_lvix.shift(1),
-                          "y_l1": d.d1_l_produccion.shift(1), "ar": d.d1_arancel.shift(-h), "cov": d.d1_lcovid.shift(-h),
+                          "y_l1": d.d1_l_produccion.shift(1 - min(h, 0)), "ar": d.d1_arancel.shift(-h), "cov": d.d1_lcovid.shift(-h),
                           "d4": d["dum_2020-04"].shift(-h), "d5": d["dum_2020-05"].shift(-h), "d6": d["dum_2020-06"].shift(-h)})
         X = X.loc[:, X.notna().any()]                              # rama sin arancel (3328): se omite la columna
         y = d.d1_l_produccion.shift(-h)

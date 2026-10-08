@@ -5,8 +5,9 @@ Dos figuras (5 variables × 2 muestras):
   - irf_promedio_mensual_covid_placebo.png:  h = −6..12; zona gris = meses antes del choque (−6 ≤ h < 0), línea punteada = choque (h = 0).
 Respuesta = nivel en t+h respecto a t−1, en %. Bandas simétricas alrededor de la estimación: 68% (± 1 ee) y 90% (± 1.645 ee),
 con ee = desviación estándar de la misma respuesta bajo 1,000 sorpresas permutadas. Eje vertical simétrico (el cero al centro)
-y común a las dos muestras de cada variable. h = −1 es cero por construcción (mes de referencia); con el rezago propio como
-control (E1, T1) también h = −2 es cero por construcción, así que el placebo informativo es h = −6..−3.
+y común a las dos muestras de cada variable. h = −1 es el mes de referencia: vale cero por definición y no tiene banda.
+En los horizontes placebo los rezagos de control se fechan antes del mes de la variable dependiente (ver 04), así que
+h = −6..−2 son placebos genuinos.
 
 Uso (desde code/Python):  python 05b_graficas_irf.py
 """
@@ -56,7 +57,12 @@ def figura(h_min, archivo, titulo, subtitulo):
             a.fill_between(d.h, d.inf90, d.sup90, color=AZUL, alpha=0.13, lw=0, zorder=2)
             a.fill_between(d.h, d.inf68, d.sup68, color=AZUL, alpha=0.28, lw=0, zorder=2)
             a.plot(d.h, d.respuesta, color=AZUL, lw=2, zorder=3)
-            a.plot(d.h, d.respuesta, "o", color=AZUL, ms=3.2, zorder=4)
+            est = d[d.h != -1]
+            a.plot(est.h, est.respuesta, "o", color=AZUL, ms=3.2, zorder=4)
+            if h_min < 0:
+                a.plot([-1], [0], "o", ms=5.5, mfc=SUP, mec=AZUL, mew=1.5, zorder=5)
+                if i == 0:
+                    a.annotate("referencia", (-1, 0), xytext=(0, -14), textcoords="offset points", ha="center", color=T2, fontsize=7.5)
             a.set_xlim(h_min, 12)
             a.set_xticks(range(h_min, 13, 2) if h_min % 2 == 0 else range(h_min, 13))
             a.set_ylim(-lim, lim); a.set_yticks(marcas)
@@ -89,7 +95,7 @@ figura(0, "irf_promedio_mensual_covid.png", "Respuesta a una sorpresa del TPU de
        "Nivel en t+h respecto al mes previo al choque (t−1). Bandas simétricas alrededor de la estimación; error estándar por permutación.")
 figura(-6, "irf_promedio_mensual_covid_placebo.png", "Respuesta a una sorpresa del TPU de 1 desv. est., con placebo (promedio de las ramas)",
        "Nivel en t+h respecto al mes previo al choque (t−1). Zona gris: meses antes del choque, donde la respuesta debe ser cero.\n"
-       "h = −1 es la referencia (cero por construcción); con [E1]/[T1], h = −2 también es cero por construcción.")
+       "h = −1 es el mes de referencia (punto hueco): vale cero por definición. Bandas simétricas; error estándar por permutación.")
 
 # Coherencia entre las bandas simétricas y los valores p de permutación
 chk = irf[irf.h != -1].assign(fuera90=lambda d: (d.inf90 > 0) | (d.sup90 < 0), p10=lambda d: d.p < 0.10)
