@@ -22,6 +22,9 @@ Inferencia: 1,000 permutaciones de la serie del choque, comunes a ramas y horizo
 Uso (desde code/Python):  python 04_especificaciones_por_rama.py          (variaciones anuales, Δ12)
                           python 04_especificaciones_por_rama.py 1        (variaciones mensuales, Δ1, en todas las variables;
                                                                            sensibilidad = SUMA de β_h, efecto acumulado en el nivel)
+                          python 04_especificaciones_por_rama.py 1 covid  (además: choque_con_covid; controles de la pandemia en
+                                                                           todas las especificaciones: Δ log(1 + EMV infecciosas)
+                                                                           en t+h y variables dicótomas de abr, may y jun de 2020 en t+h)
 Salidas: outputs/tables/especificaciones_resumen[_mensual].csv, outputs/tables/sensibilidad_por_rama_mejor[_mensual].csv
 """
 import sys
@@ -39,9 +42,14 @@ H_PRE, H_POST = list(range(-6, 0)), list(range(0, 13))
 PANDEMIA = (pd.Timestamp("2020-03-01"), pd.Timestamp("2021-06-01"))
 FIN = pd.Timestamp("2026-07-01")
 DIF = int(sys.argv[1]) if len(sys.argv) > 1 else 12              # 12 = variación anual; 1 = variación mensual
-SUF = "" if DIF == 12 else "_mensual"
+COVID = len(sys.argv) > 2 and sys.argv[2] == "covid"
+SUF = ("" if DIF == 12 else "_mensual") + ("_covid" if COVID else "")
+CHOQUE = "choque_con_covid" if COVID else "choque_principal"
+SIN_CHOQUES_2020 = len(sys.argv) > 3 and sys.argv[3] == "sin_choques_2020"   # robustez: excluye filas cuyo choque (mes t) es de 2020
+if SIN_CHOQUES_2020:
+    SUF += "_sin_choques_2020"
 AGREGA = np.mean if DIF == 12 else np.sum                         # mensual: suma = efecto acumulado en el nivel
-print(f"Variaciones: Δ{DIF}; sensibilidad = {'promedio' if DIF == 12 else 'suma'} de β_h")
+print(f"Variaciones: Δ{DIF}; sensibilidad = {'promedio' if DIF == 12 else 'suma'} de β_h; choque = {CHOQUE}; controles de pandemia = {COVID}")
 
 # ------------------------------------------------------------------ datos
 base = pd.read_excel(RAIZ / "data/processed/base_incertidumbre_comercial_mexico.xlsx", sheet_name="base_integrada", dtype={"rama": str})
@@ -56,14 +64,20 @@ tc = pd.Series(pd.to_numeric(tc[1]).values, index=pd.to_datetime(tc[0]).dt.to_pe
 vix = (pd.read_csv(RAW / "controles_macroeconomicos/fred_vix_diario.csv", na_values=[".", ""], parse_dates=["observation_date"])
        .dropna().set_index("observation_date").VIXCLS.resample("MS").mean())
 ip = pd.read_csv(RAW / "produccion_estados_unidos/fred_indpro_mensual.csv", parse_dates=["observation_date"]).set_index("observation_date").INDPRO
-choque = pd.read_csv(RAIZ / "outputs/tables/choque_tpu_limpio.csv", parse_dates=["mes"]).set_index("mes").choque_principal
+choque = pd.read_csv(RAIZ / "outputs/tables/choque_tpu_limpio.csv", parse_dates=["mes"]).set_index("mes")[CHOQUE]
+emv_d = pd.read_csv(RAW / "incertidumbre/emv_enfermedades_infecciosas_baker_bloom_davis.csv")
+emv_d["fecha"] = pd.to_datetime(dict(year=emv_d.year, month=emv_d.month, day=emv_d.day))
+emv = emv_d.set_index("fecha").daily_infect_emv_index.resample("MS").mean()
 
 meses = pd.date_range("2013-01-01", FIN, freq="MS")
 P = pd.MultiIndex.from_product([ramas, meses], names=["rama", "mes"]).to_frame(index=False)
 P = P.merge(base[["rama", "mes", "emim_valor_produccion_real", "emim_personal_ocupado", "emim_horas_trabajadas", "expo_valor_real"]],
             on=["rama", "mes"], how="left", validate="one_to_one")
 P = P.merge(cen[["rama", "mes", "valor_importado", "tasa_efectiva"]], on=["rama", "mes"], how="left", validate="one_to_one")
-P = P.merge(pd.DataFrame({"lip": np.log(ip), "ltc": np.log(tc), "lvix": np.log(vix)}).rename_axis("mes").reset_index(), on="mes", how="left", validate="many_to_one")
+P = P.merge(pd.DataFrame({"lip": np.log(ip), "ltc": np.log(tc), "lvix": np.log(vix), "lcovid": np.log1p(emv)}).rename_axis("mes").reset_index(),
+            on="mes", how="left", validate="many_to_one")
+for m_ in ["2020-04-01", "2020-05-01", "2020-06-01"]:
+    P[f"dum_{m_[:7]}"] = (P.mes == pd.Timestamp(m_)).astype(float)
 ceros = {c: int((P[c] == 0).sum()) for c in ["expo_valor_real", "valor_importado"]}
 print("Valores en cero (quedan NA al tomar log):", ceros)
 NIV = {"produccion": "emim_valor_produccion_real", "empleo": "emim_personal_ocupado", "horas": "emim_horas_trabajadas",
@@ -76,7 +90,7 @@ P = P.sort_values(["rama", "mes"]).reset_index(drop=True)
 def en_fecha(col, k):
     aux = P[["rama", "mes", col]].assign(mes=P.mes - pd.DateOffset(months=k))
     return P[["rama", "mes"]].merge(aux, on=["rama", "mes"], how="left", validate="one_to_one")[col].values
-for c in ["l_" + k for k in NIV] + ["lip", "ltc", "lvix", "arancel"]:
+for c in ["l_" + k for k in NIV] + ["lip", "ltc", "lvix", "arancel", "lcovid"]:
     P[f"d{DIF}_" + c] = P[c] - en_fecha(c, -DIF)
 D12 = lambda k: f"d{DIF}_l_" + k
 
@@ -117,6 +131,10 @@ def preparar(y, spec, h):
         return _CACHE[(y, spec, h)]
     W = controles(y, spec)
     W["arancel_h"] = rez(f"d{DIF}_arancel", -h)
+    if COVID:
+        W["covid_h"] = rez(f"d{DIF}_lcovid", -h)
+        for m_ in ["2020-04", "2020-05", "2020-06"]:
+            W[f"dum_{m_}_h"] = rez(f"dum_{m_}", -h)
     yh = rez(D12(y), -h)
     lags_s = [0, 1, 2, 3] if spec == "E5" else [0, 1]
     _CACHE[(y, spec, h)] = (yh, W, lags_s)
@@ -140,12 +158,16 @@ def estimar(y, spec, excluir_pandemia, muestra_comun):
             ok &= ~np.isnan(Wm).any(axis=1)
             if muestra_comun is not None:
                 ok &= muestra_comun[h]
+            if SIN_CHOQUES_2020:
+                ok &= (P.mes.dt.year != 2020).values
             if excluir_pandemia:
                 ini = P.mes + pd.DateOffset(months=min(h - DIF, -1)); fin = P.mes + pd.DateOffset(months=max(h, 0))
                 ok &= ~((ini <= PANDEMIA[1]) & (fin >= PANDEMIA[0])).values
             idx = np.flatnonzero(ok)
             if len(idx) < 30:
                 b = None; break
+            varia = np.r_[True, np.ptp(Wm[idx][:, 1:], axis=0) > 0]          # quita columnas constantes en la muestra (p. ej., dicótomas sin pandemia)
+            Wm = Wm[:, varia]
             Q, _ = np.linalg.qr(Wm[idx])
             res = lambda A: A - Q @ (Q.T @ A)
             yt = res(yh[idx])
@@ -190,8 +212,10 @@ def resumen(df):
                 placebo_medio=pre, p_placebo=float(np.mean(np.abs(pre0) >= abs(pre))), ramas=len(df))
 
 filas, guardado = [], {}
+if SIN_CHOQUES_2020:
+    ESPECS = {"produccion": ["E1"], "empleo": ["E0"], "horas": ["E1"], "exportaciones": ["T1"], "importaciones_eeuu": ["T1"]}
 for y, specs in ESPECS.items():
-    for excl, etq in [(True, "sin pandemia"), (False, "completa")]:
+    for excl, etq in ([(False, "completa")] if SIN_CHOQUES_2020 else [(True, "sin pandemia"), (False, "completa")]):
         mc = mascara_comun(y, specs, excl)
         for spec in specs:
             df, bic = estimar(y, spec, excl, mc)
@@ -199,7 +223,7 @@ for y, specs in ESPECS.items():
             guardado[(y, etq, spec)] = df
             print(f"{y:18s} {etq:12s} {spec:3s} | BIC {bic:9.1f} | efecto {r['efecto_medio']:+.2f} (ee {r['ee']:.2f}, p {r['p']:.2f}) | "
                   f"placebo {r['placebo_medio']:+.2f} (p {r['p_placebo']:.2f}) | heterog. p {r['p_heterogeneidad']:.2f} | ramas {r['ramas']}", flush=True)
-        if y in ("produccion", "empleo", "horas"):
+        if y in ("produccion", "empleo", "horas") and not SIN_CHOQUES_2020:
             df, bic = estimar(y, "E3b", excl, None)
             r = resumen(df); filas.append(dict(variable=y, muestra=etq, especificacion="E3b (muestra 2020-)", bic_medio=bic, **r))
             print(f"{y:18s} {etq:12s} E3b| BIC {bic:9.1f} (otra muestra) | efecto {r['efecto_medio']:+.2f} (ee {r['ee']:.2f}, p {r['p']:.2f}) | "

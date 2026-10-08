@@ -6,6 +6,9 @@ Paso 1. Choque de incertidumbre comercial (mensual, 1990-2026, todo en logaritmo
         - choque_principal: la ecuación anterior, estimada con toda la muestra.
         - choque_fuera_de_muestra: misma ecuación, ventana creciente; el residuo de cada mes usa solo datos anteriores (desde 2010).
         - choque_sin_ip_contemporanea: sin log IP_EEUU_t (solo sus rezagos).
+        - choque_con_covid: la ecuación principal + log(1 + EMV de enfermedades infecciosas) del mes actual y 3 rezagos
+          (Baker, Bloom, Davis et al.; promedio mensual del índice diario). Quita del TPU el desplazamiento de noticias
+          comerciales por noticias de la pandemia (el TPU es una proporción de artículos).
         Todas se estandarizan con su desviación estándar de 2018-01 a 2026-07.
 Paso 2. Local projection por rama (h = 0..12), variable dependiente en variación anual:
         log y(t+h) − log y(t+h−12) = c + β_h s_t + θ s_{t−1} + Δ12 log IP_EEUU_t + Δ12 log TC_{t−1} + Δ12 log VIX_{t−1}
@@ -55,7 +58,19 @@ for m in d.index[d.index >= "2010-01-01"]:
     previo = d[d.index < m]
     f_ = sm.OLS(previo.tpu, sm.add_constant(previo[X_PRIN])).fit()
     oos[m] = d.loc[m, "tpu"] - float(f_.predict(sm.add_constant(d.loc[[m], X_PRIN], has_constant="add")).iloc[0])
-choques = pd.DataFrame({"choque_principal": prin.resid, "choque_fuera_de_muestra": pd.Series(oos), "choque_sin_ip_contemporanea": sin_ip.resid})
+emv_d = pd.read_csv(RAW / "incertidumbre/emv_enfermedades_infecciosas_baker_bloom_davis.csv")
+emv_d["fecha"] = pd.to_datetime(dict(year=emv_d.year, month=emv_d.month, day=emv_d.day))
+emv = emv_d.set_index("fecha").daily_infect_emv_index.resample("MS").mean()
+emv = emv[emv.index < emv_d.fecha.max().to_period("M").to_timestamp()]         # solo meses completos
+cov = np.log1p(emv)
+dc = d.join(pd.DataFrame({"covid": cov, **{f"covid_l{l}": cov.shift(l) for l in range(1, P_VAR + 1)}}), how="inner").dropna()
+X_COV = X_PRIN + ["covid"] + [f"covid_l{l}" for l in range(1, P_VAR + 1)]
+con_cov = sm.OLS(dc.tpu, sm.add_constant(dc[X_COV])).fit()
+print("Con COVID: coeficientes", con_cov.params[["covid"] + [f"covid_l{l}" for l in range(1, P_VAR + 1)]].round(3).to_dict(),
+      "| valores p:", con_cov.pvalues[["covid"] + [f"covid_l{l}" for l in range(1, P_VAR + 1)]].round(3).to_dict(),
+      f"| prueba conjunta p = {con_cov.f_test(' = '.join([]) or ', '.join(f'{c} = 0' for c in ['covid'] + [f'covid_l{l}' for l in range(1, P_VAR + 1)])).pvalue:.4f}")
+choques = pd.DataFrame({"choque_principal": prin.resid, "choque_fuera_de_muestra": pd.Series(oos), "choque_sin_ip_contemporanea": sin_ip.resid,
+                        "choque_con_covid": con_cov.resid})
 viejo = pd.read_csv(RAIZ / "outputs/tables/sorpresa_tpu.csv", parse_dates=["mes"]).set_index("mes").sorpresa_tpu
 en_v = choques.loc[VENTANA[0]:VENTANA[1]]
 ESC = en_v.std()
@@ -64,6 +79,7 @@ print(f"Regresión del TPU: {d.index.min():%Y-%m} a {d.index.max():%Y-%m} ({len(
 print("Coeficientes del mismo mes (log):", prin.params[["vix", "ip"]].round(3).to_dict(), "| valores p:", prin.pvalues[["vix", "ip"]].round(3).to_dict())
 print("Autocorrelación del choque principal (1, 2, 3, 12):", [round(prin.resid.autocorr(k), 3) for k in (1, 2, 3, 12)])
 print("1 desv. est. 2018-2026 (log):", ESC.round(3).to_dict())
+print("Choque estandarizado 2020-01 a 2020-07:\n", choques_std.loc["2020-01":"2020-07", ["choque_principal", "choque_con_covid"]].round(2).to_string())
 print("Correlaciones 2018-2026:", pd.concat([en_v, viejo.rename("sorpresa_anterior")], axis=1, sort=True).dropna().corr().round(3).iloc[0].to_dict())
 choques_std.rename_axis("mes").to_csv(RAIZ / "outputs/tables/choque_tpu_limpio.csv")
 
