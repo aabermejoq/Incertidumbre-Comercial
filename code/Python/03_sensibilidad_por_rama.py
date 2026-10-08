@@ -1,11 +1,12 @@
 """Sensibilidad de cada rama a un choque limpio de incertidumbre comercial.
 
-Paso 1. Choque limpio (VAR recursivo mensual, 1990-2026). Variables en logaritmos:
-        producción industrial de EE.UU., VIX y TPU, con 6 rezagos.
-        - Choque A (principal, conservador): innovación del TPU ortogonal a los rezagos de todo y a los valores
-          contemporáneos de las demás variables (TPU al final del orden de Cholesky).
-        - Choque B (robustez): innovación del TPU ortogonal solo a los rezagos (TPU primero en el orden).
-        Ambos se estandarizan con su desviación estándar de 2018-01 a 2026-07.
+Paso 1. Choque de incertidumbre comercial (mensual, 1990-2026, todo en logaritmos). Residuo de
+            log TPU_t = c + Σ_{l=1..3} a_l log TPU_{t−l} + Σ_{l=0..3} b_l log VIX_{t−l} + Σ_{l=0..3} c_l log IP_EEUU_{t−l} + u_t
+        (3 rezagos: mínimo BIC frente a 6 y 12; residuo sin autocorrelación). Versiones:
+        - choque_principal: la ecuación anterior, estimada con toda la muestra.
+        - choque_fuera_de_muestra: misma ecuación, ventana creciente; el residuo de cada mes usa solo datos anteriores (desde 2010).
+        - choque_sin_ip_contemporanea: sin log IP_EEUU_t (solo sus rezagos).
+        Todas se estandarizan con su desviación estándar de 2018-01 a 2026-07.
 Paso 2. Local projection por rama (h = 0..12), con controles propios de la rama:
         log y(t+h) − log y(t−1) = c + mes calendario + β_h s_t + θ s_{t−1} + ρ1 Δlog y(t−1) + ρ2 Δlog y(t−2)
                                   + Δ12 log IP_EEUU_t + Δ12 log TC_{t−1} + Δ12 log VIX_{t−1}
@@ -30,7 +31,7 @@ from scipy.stats import norm
 RAIZ = Path(__file__).resolve().parents[1].parent
 RAW = RAIZ / "data/raw"
 RNG = np.random.default_rng(20261008)
-N_PERM, P_VAR, H = 1000, 6, list(range(13))
+N_PERM, P_VAR, H = 1000, 3, list(range(13))
 PANDEMIA = (pd.Timestamp("2020-03-01"), pd.Timestamp("2021-06-01"))
 VENTANA = (pd.Timestamp("2018-01-01"), pd.Timestamp("2026-07-01"))
 
@@ -44,25 +45,28 @@ vix_d = pd.read_csv(RAW / "controles_macroeconomicos/fred_vix_diario.csv", na_va
 vix = vix_d.dropna().set_index("observation_date").VIXCLS.resample("MS").mean()
 ip = mensual(pd.read_csv(RAW / "produccion_estados_unidos/fred_indpro_mensual.csv", parse_dates=["observation_date"]).set_index("observation_date").INDPRO)
 
-V = pd.DataFrame({"ip": ip, "vix": vix, "tpu": tpu}).dropna()
-OTRAS = ["ip", "vix"]
-V = np.log(V)
-X = pd.concat({f"{c}_l{l}": V[c].shift(l) for c in V for l in range(1, P_VAR + 1)}, axis=1)
-d = pd.concat([V, X], axis=1).dropna()
-rez = sm.OLS(d.tpu, sm.add_constant(d[X.columns])).fit()
-contemp = sm.OLS(d.tpu, sm.add_constant(d[list(X.columns) + OTRAS])).fit()
-choques = pd.DataFrame({"choque_A_tpu_ultimo": contemp.resid, "choque_B_tpu_primero": rez.resid})
+V = np.log(pd.DataFrame({"tpu": tpu, "vix": vix, "ip": ip}).dropna())
+REZ = {f"{c}_l{l}": V[c].shift(l) for c in V for l in range(1, P_VAR + 1)}
+d = pd.concat([V, pd.DataFrame(REZ)], axis=1).dropna()
+X_PRIN = list(REZ) + ["vix", "ip"]
+X_SIN_IP = list(REZ) + ["vix"]
+prin = sm.OLS(d.tpu, sm.add_constant(d[X_PRIN])).fit()
+sin_ip = sm.OLS(d.tpu, sm.add_constant(d[X_SIN_IP])).fit()
+oos = {}
+for m in d.index[d.index >= "2010-01-01"]:
+    previo = d[d.index < m]
+    f_ = sm.OLS(previo.tpu, sm.add_constant(previo[X_PRIN])).fit()
+    oos[m] = d.loc[m, "tpu"] - float(f_.predict(sm.add_constant(d.loc[[m], X_PRIN], has_constant="add")).iloc[0])
+choques = pd.DataFrame({"choque_principal": prin.resid, "choque_fuera_de_muestra": pd.Series(oos), "choque_sin_ip_contemporanea": sin_ip.resid})
 viejo = pd.read_csv(RAIZ / "outputs/tables/sorpresa_tpu.csv", parse_dates=["mes"]).set_index("mes").sorpresa_tpu
 en_v = choques.loc[VENTANA[0]:VENTANA[1]]
 ESC = en_v.std()
 choques_std = choques / ESC
-print(f"VAR: {d.index.min():%Y-%m} a {d.index.max():%Y-%m} ({len(d)} meses), {P_VAR} rezagos")
-print(f"R² TPU solo con rezagos: {rez.rsquared:.3f}; con valores contemporáneos de IP y VIX: {contemp.rsquared:.3f}")
-print("Parte de la innovación del TPU explicada por las otras variables en el mismo mes:",
-      f"{1 - contemp.resid.var() / rez.resid.var():.1%}")
-print("Coeficientes contemporáneos (log):", contemp.params[OTRAS].round(3).to_dict(), "| valores p:", contemp.pvalues[OTRAS].round(3).to_dict())
-print("1 desv. est. del choque (2018-2026), en log:", choques.loc[VENTANA[0]:VENTANA[1]].std().round(3).to_dict())
-print("Correlaciones 2018-2026:", pd.concat([en_v, viejo.rename("sorpresa_anterior")], axis=1).dropna().corr().round(3).iloc[0].to_dict())
+print(f"Regresión del TPU: {d.index.min():%Y-%m} a {d.index.max():%Y-%m} ({len(d)} meses), {P_VAR} rezagos; R² = {prin.rsquared:.3f}")
+print("Coeficientes del mismo mes (log):", prin.params[["vix", "ip"]].round(3).to_dict(), "| valores p:", prin.pvalues[["vix", "ip"]].round(3).to_dict())
+print("Autocorrelación del choque principal (1, 2, 3, 12):", [round(prin.resid.autocorr(k), 3) for k in (1, 2, 3, 12)])
+print("1 desv. est. 2018-2026 (log):", ESC.round(3).to_dict())
+print("Correlaciones 2018-2026:", pd.concat([en_v, viejo.rename("sorpresa_anterior")], axis=1, sort=True).dropna().corr().round(3).iloc[0].to_dict())
 choques_std.rename_axis("mes").to_csv(RAIZ / "outputs/tables/choque_tpu_limpio.csv")
 
 # ---------------------------------------------------------------- Paso 2: LP por rama
@@ -186,7 +190,7 @@ def eb(df):
     return out, meta
 
 filas, metas = [], {}
-for choque in ["choque_A_tpu_ultimo", "choque_B_tpu_primero"]:
+for choque in ["choque_principal", "choque_fuera_de_muestra", "choque_sin_ip_contemporanea"]:
     s = choques_std[choque].reindex(MESES_S).values
     assert not np.isnan(s).any()
     for y in NIV:
@@ -196,7 +200,7 @@ for choque in ["choque_A_tpu_ultimo", "choque_B_tpu_primero"]:
             out, meta = eb(df)
             metas[(choque, y, etiqueta)] = meta
             filas.append(out.assign(choque=choque, variable=y, muestra=etiqueta))
-            print(f"{choque[:9]} | {y:10s} | {etiqueta:12s} | media común {meta['mu']:+.2f} (ee {meta['se_mu']:.2f}, p {meta['p_mu']:.2f}) | "
+            print(f"{choque[:16]:16s} | {y:10s} | {etiqueta:12s} | media común {meta['mu']:+.2f} (ee {meta['se_mu']:.2f}, p {meta['p_mu']:.2f}) | "
                   f"heterogeneidad: Q = {meta['Q']:.0f} (gl {meta['gl']}), p perm = {meta['p_het']:.3f}, τ = {meta['tau']:.2f} | "
                   f"γ export = {meta['gamma'][1]:+.2f} (ee {meta['se_gamma'][1]:.2f}), γ arancel = {meta['gamma'][2]:+.2f} (ee {meta['se_gamma'][2]:.2f}) | "
                   f"P(neg)>0.9: {(out.prob_negativo > .9).sum()}, P(neg)<0.1: {(out.prob_negativo < .1).sum()}", flush=True)
