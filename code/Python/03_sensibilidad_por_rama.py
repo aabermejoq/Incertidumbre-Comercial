@@ -7,10 +7,9 @@ Paso 1. Choque de incertidumbre comercial (mensual, 1990-2026, todo en logaritmo
         - choque_fuera_de_muestra: misma ecuación, ventana creciente; el residuo de cada mes usa solo datos anteriores (desde 2010).
         - choque_sin_ip_contemporanea: sin log IP_EEUU_t (solo sus rezagos).
         Todas se estandarizan con su desviación estándar de 2018-01 a 2026-07.
-Paso 2. Local projection por rama (h = 0..12), con controles propios de la rama:
-        log y(t+h) − log y(t−1) = c + mes calendario + β_h s_t + θ s_{t−1} + ρ1 Δlog y(t−1) + ρ2 Δlog y(t−2)
-                                  + Δ12 log IP_EEUU_t + Δ12 log TC_{t−1} + Δ12 log VIX_{t−1}
-                                  + Δ arancel efectivo de la rama (t−1 → t+h) + Δ log días hábiles + e
+Paso 2. Local projection por rama (h = 0..12), variable dependiente en variación anual:
+        log y(t+h) − log y(t+h−12) = c + β_h s_t + θ s_{t−1} + Δ12 log IP_EEUU_t + Δ12 log TC_{t−1} + Δ12 log VIX_{t−1}
+                                     + Δ12 arancel efectivo de la rama en t+h + e
         Sensibilidad de la rama = promedio de β_h en h = 0..12 (% de cambio en el nivel por 1 desv. est.).
         Error estándar y valor p por permutación de la serie del choque (1,000 permutaciones comunes).
 Paso 3. Encogimiento empírico de Bayes: β̂_i ~ N(θ_i, s_i²), θ_i ~ N(Z_i'γ, τ²), con Z = [1, coeficiente de
@@ -20,7 +19,6 @@ Paso 3. Encogimiento empírico de Bayes: β̂_i ~ N(θ_i, s_i²), θ_i ~ N(Z_i'�
 Uso (desde code/Python):  python 03_sensibilidad_por_rama.py
 Salidas: outputs/tables/choque_tpu_limpio.csv, outputs/tables/sensibilidad_por_rama.csv
 """
-from datetime import date, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -74,21 +72,6 @@ base = pd.read_excel(RAIZ / "data/processed/base_incertidumbre_comercial_mexico.
 base["mes"] = pd.to_datetime(base.mes)
 base = base.sort_values(["rama", "mes"]).reset_index(drop=True)
 
-def pascua(a):
-    b, c = divmod(a, 100); d_, e = divmod(b, 4); f = (b + 8) // 25; g = (b - f + 1) // 3
-    h = (19 * (a % 19) + b - d_ - g + 15) % 30; i, k = divmod(c, 4); l = (32 + 2 * e + 2 * i - h - k) % 7
-    m = (a % 19 + 11 * h + 22 * l) // 451
-    return date(a, (h + l - 7 * m + 114) // 31, (h + l - 7 * m + 114) % 31 + 1)
-def lunes_n(a, mes, n):
-    d0 = date(a, mes, 1); return d0 + timedelta(days=(7 - d0.weekday()) % 7 + 7 * (n - 1))
-fer = set()
-for a in range(2015, 2028):
-    fer |= {date(a, 1, 1), lunes_n(a, 2, 1), lunes_n(a, 3, 3), date(a, 5, 1), date(a, 9, 16), lunes_n(a, 11, 3), date(a, 12, 25),
-            pascua(a) - timedelta(days=3), pascua(a) - timedelta(days=2)}
-fer |= {date(2018, 12, 1), date(2024, 10, 1)}
-dias = pd.date_range("2015-01-01", "2027-12-31", freq="D")
-LDH = np.log(pd.Series([(x.weekday() < 5) and (x.date() not in fer) for x in dias], index=dias).resample("MS").sum().astype(float))
-
 def en_fecha(col, k):
     aux = base[["rama", "mes", col]].assign(mes=base.mes - pd.DateOffset(months=k))
     return base[["rama", "mes"]].merge(aux, on=["rama", "mes"], how="left", validate="one_to_one")[col].values
@@ -107,15 +90,12 @@ POS = pd.Series(np.arange(len(MESES_S)), index=MESES_S)
 PERM = np.array([RNG.permutation(len(MESES_S)) for _ in range(N_PERM)])
 p0 = base.mes.map(POS).fillna(-1).astype(int).values
 p1 = (base.mes - pd.DateOffset(months=1)).map(POS).fillna(-1).astype(int).values
-CAL = pd.get_dummies(base.mes.dt.month, prefix="m", drop_first=True, dtype=float).values
 
 PRECOMP = {}
 for k in NIV:
-    W = {"dl1_l1": en_fecha("dl1_" + k, -1), "dl1_l2": en_fecha("dl1_" + k, -2), "ip": base.d12_lip.values,
-         "tc_l1": en_fecha("d12_ltc", -1), "vix_l1": en_fecha("d12_lvix", -1)}
-    PRECOMP[k] = {h: dict(W=W, y=en_fecha("l_" + k, h) - en_fecha("l_" + k, -1),
-                          ar=en_fecha("arancel_pp", h) - en_fecha("arancel_pp", -1),
-                          dh=((base.mes + pd.DateOffset(months=h)).map(LDH) - (base.mes - pd.DateOffset(months=1)).map(LDH)).values)
+    W = {"ip": base.d12_lip.values, "tc_l1": en_fecha("d12_ltc", -1), "vix_l1": en_fecha("d12_lvix", -1)}
+    PRECOMP[k] = {h: dict(W=W, y=en_fecha("l_" + k, h) - en_fecha("l_" + k, h - 12),
+                          ar=en_fecha("arancel_pp", h) - en_fecha("arancel_pp", h - 12))
                   for h in H}
 
 def sensibilidad_rama(rama, y, s, excluir_pandemia):
@@ -124,14 +104,14 @@ def sensibilidad_rama(rama, y, s, excluir_pandemia):
     b_real, b_perm, n_h = [], [], []
     for h in H:
         P = PRECOMP[y][h]
-        cols = [np.ones(len(base)), CAL.T, *P["W"].values(), P["dh"]]
+        cols = [np.ones(len(base)), *P["W"].values()]
         usa_ar = not np.all(np.isnan(P["ar"][sel]))
         if usa_ar:
             cols.append(P["ar"])
         Wm = np.column_stack([np.atleast_2d(c).T if np.ndim(c) == 1 else c.T for c in cols])
         ok = sel & ~np.isnan(P["y"]) & ~np.isnan(Wm).any(axis=1) & (p1 >= 0) & (p0 >= 0)
         if excluir_pandemia:
-            ini, fin = base.mes - pd.DateOffset(months=1), base.mes + pd.DateOffset(months=h)
+            ini, fin = base.mes + pd.DateOffset(months=min(h - 12, -1)), base.mes + pd.DateOffset(months=h)
             ok &= ~((ini <= PANDEMIA[1]) & (fin >= PANDEMIA[0])).values
         idx = np.flatnonzero(ok)
         if len(idx) < 40:
