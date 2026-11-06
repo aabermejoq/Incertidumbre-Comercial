@@ -1,6 +1,6 @@
 ---
 title: "Pronóstico mensual de la actividad industrial de México"
-subtitle: "Entregas 1 a 3 · Diagnóstico, construcción de variables y estrategia de información"
+subtitle: "Entregas 1 a 4 · Diagnóstico, variables, estrategia de información y modelos econométricos"
 date: "`r format(Sys.Date(), '%Y-%m-%d')`"
 output:
   html_document:
@@ -55,14 +55,14 @@ $$
 
 Todos los modelos pronosticarán directamente $g_{t+1}$. No se pronosticarán niveles ni se usarán modelos estacionales, desestacionalización ni dummies mensuales. El criterio de selección será el desempeño **fuera de muestra**, usando en cada fecha sólo la información que habría estado disponible.
 
-**Este documento contiene las entregas 1 a 3.** Las entregas 1 (diagnóstico) y 2 (construcción de variables) ya fueron validadas, y sus decisiones se registran abajo. La entrega 3 (sección de disponibilidad histórica) evalúa qué información conviene usar en cada sector: el benchmark de referencia (`auto.arima`), la contribución marginal de cada variable, la comparación de muestras y de paneles desbalanceados, y la reconstrucción de historias cortas. Los modelos de esa sección son instrumentos para decidir la estrategia de información, no los modelos finales, que se desarrollan en las entregas 4 y 5. En la sección 2 las transformaciones "provisionales" sólo sirven para describir los datos; las definitivas son las de la sección 3.
+**Este documento contiene las entregas 1 a 4.** Las entregas 1 (diagnóstico), 2 (construcción de variables) y 3 (estrategia de información) ya fueron validadas, y sus decisiones se registran abajo. La entrega 4 (secciones 5 a 8) implementa los modelos econométricos tradicionales con la estrategia de información validada para cada sector. Los evalúa fuera de muestra frente a `auto.arima`, con ventanas expansivas y móviles e hiperparámetros elegidos dentro de cada ventana de entrenamiento. En la sección 2 las transformaciones "provisionales" sólo sirven para describir los datos; las definitivas son las de la sección 3.
 
 | Entrega | Contenido | Estado |
 |---|---|---|
 | 1 | Configuración, lectura y diagnóstico de datos | Validada |
 | 2 | Construcción de variaciones anuales y transformaciones; prueba de la EMAER histórica | Validada |
-| 3 | Disponibilidad histórica, contribución marginal y estrategia de información | **Este documento (para revisión)** |
-| 4 | Benchmarks y modelos econométricos | Pendiente |
+| 3 | Disponibilidad histórica, contribución marginal y estrategia de información | Validada |
+| 4 | Modelos econométricos frente al benchmark auto.arima | **Este documento (para revisión)** |
 | 5 | Machine learning, factores y combinaciones | Pendiente |
 | 6 | Selección y pronósticos finales | Pendiente |
 
@@ -90,7 +90,8 @@ paquetes_requeridos <- c(
   "tseries",      # pruebas ADF y KPSS descriptivas
   "strucchange",  # quiebres estructurales (Bai-Perron), sólo descriptivo
   "writexl",      # libro de resultados en Excel
-  "forecast"      # auto.arima (benchmark) y ARIMA con regresores
+  "forecast",     # auto.arima (benchmark) y ARIMA con regresores
+  "glmnet"        # LASSO, Ridge y Elastic Net
 )
 
 INSTALAR_FALTANTES <- FALSE   # cambiar a TRUE para instalar desde CRAN
@@ -187,6 +188,17 @@ K_FACTORES            <- 2       # factores en los modelos de factores
 MIN_HISTORIA_EXPANSIVA <- 120    # meses mínimos para que una variable entre a la estrategia expansiva
 FIN_HISTORIA_LARGA    <- as.Date("1998-07-01")  # representaciones que existen desde esta fecha o antes
 for (d in c(DIR_RESULTADOS_3, DIR_CACHE)) dir.create(d, recursive = TRUE, showWarnings = FALSE)
+
+# --- Entrega 4: modelos econométricos (secciones 5 a 8) ------------------------
+RECORTE_PROBS     <- c(0.025, 0.975)  # recorte de predictores en cada ventana (decisión de la entrega 3)
+VENTANA_MOVIL     <- 120              # meses de la ventana móvil de estimación
+VALIDACION_MESES  <- 24               # últimos meses del entrenamiento usados para elegir hiperparámetros
+REZAGOS_G         <- 12               # rezagos de g en los modelos penalizados
+ALFAS_PENALIZADOS <- c("LASSO" = 1, "Elastic Net" = 0.5, "Ridge" = 0)
+REJILLA_ADL       <- expand.grid(p = c(1, 2, 3, 6, 12), q = c(0, 1, 2))  # rezagos de g y de los factores
+INICIO_MODELOS    <- INICIO_EVAL_PRINCIPAL                                # primer mes pronosticado
+DIR_RESULTADOS_4  <- file.path("resultados", "04_modelos")
+dir.create(DIR_RESULTADOS_4, recursive = TRUE, showWarnings = FALSE)
 
 # --- Prueba de la EMAER histórica (preespecificada, sección 4) ----------------
 INICIO_EMAER_NUEVA   <- as.Date("2018-01-01")  # inicio de la EMAER actual
@@ -527,9 +539,19 @@ decisiones <- tribble(
   12, "Entrega 2: ENOE", "Quitarla de todo",
      "Excluida de todas las representaciones, paneles y modelos (ELEC y MIN); se conserva sólo en el diagnóstico del archivo",
   13, "Entrega 2: benchmark", "auto.arima",
-     "Sección 4: auto.arima sin componentes estacionales, reestimado en cada origen, es la referencia de todas las comparaciones"
-) %>% mutate(entrega = if_else(n <= 9, 1L, 2L), .before = 1)
-tabla(decisiones, "Decisiones validadas al cierre de las entregas 1 y 2")
+     "Sección 4: auto.arima sin componentes estacionales, reestimado en cada origen, es la referencia de todas las comparaciones",
+  14, "Entrega 3: recorte de predictores", "Sí, con percentiles 2.5 y 97.5",
+     "Secciones 5 a 8: cada predictor se recorta con los percentiles 2.5 y 97.5 de su ventana de entrenamiento",
+  15, "Entrega 3: estrategia de información por sector", "Sí",
+     "Factores de historia larga en MANUF y CONST; selección en tiempo real en ELEC y MIN; variables cortas sólo de forma selectiva",
+  16, "Entrega 3: no reconstruir historias cortas con factores", "Sí",
+     "Ningún modelo de la entrega 4 imputa valores anteriores al inicio de una variable",
+  17, "Entrega 3: excluir EMAER sin historia y días laborados", "Sí",
+     "No entran a ningún modelo",
+  18, "Entrega 3: comparar con auto.arima y con el último dato", "Sólo contra auto.arima",
+     "Desde la entrega 4 la única referencia de comparación es auto.arima"
+) %>% mutate(entrega = case_when(n <= 9 ~ 1L, n <= 13 ~ 2L, TRUE ~ 3L), .before = 1)
+tabla(decisiones, "Decisiones validadas al cierre de las entregas 1 a 3")
 ```
 
 Los valores sospechosos de `CFE4` (2006-01) y `CFE6` (2000-10) se mantienen sin cambios y quedan marcados, como se propuso en el diagnóstico.
@@ -2964,12 +2986,16 @@ Las variables cortas sólo se evalúan en las fechas en que tienen pronóstico, 
 </div>
 
 ```{r contribucion-marginal}
-pronosticar_arimax <- function(h, nombre, k) {
-  p <- paneles_modelo[[h]]; x <- dplyr::lag(p[[nombre]], k)
+pronosticar_arimax <- function(h, nombre, k, recorte = FALSE) {
+  p <- paneles_modelo[[h]]; x_original <- dplyr::lag(p[[nombre]], k)
   b <- benchmark[benchmark$hoja == h, ]
   map_dfr(fechas_pronostico, function(f) {
     t0 <- f %m-% months(HORIZONTE)
-    filas <- which(p$fecha <= t0 & !is.na(p$g) & !is.na(x))
+    filas <- which(p$fecha <= t0 & !is.na(p$g) & !is.na(x_original))
+    x <- x_original
+    if (recorte && length(filas) > 0) {      # entrega 4: recorte con percentiles de la ventana de entrenamiento
+      lim <- quantile(x[filas], RECORTE_PROBS, names = FALSE); x <- pmin(pmax(x, lim[1]), lim[2])
+    }
     xf <- x[p$fecha == f]
     if (length(filas) < MIN_ENTRENAMIENTO || length(xf) != 1 || is.na(xf)) return(NULL)
     stopifnot(all(diff(filas) == 1))                     # muestra contigua
@@ -3214,9 +3240,9 @@ pron_factores %>% filter(!is.na(pronostico)) %>% group_by(hoja, estrategia) %>%
 
 ```{r estrategias-combinacion}
 # Matrices fecha × representación de pronósticos y errores individuales (sólo representaciones elegibles).
-combinar_individuales <- function(h) {
+combinar_individuales <- function(h, ind = individuales) {
   elegibles <- catalogo_modelo$nombre[catalogo_modelo$hoja == h & catalogo_modelo$en_estrategias]
-  d <- individuales %>% filter(hoja == h, nombre %in% elegibles, !is.na(pronostico))
+  d <- ind %>% filter(hoja == h, nombre %in% elegibles, !is.na(pronostico))
   P <- d %>% select(fecha, nombre, pronostico) %>% pivot_wider(names_from = nombre, values_from = pronostico) %>%
     right_join(tibble(fecha = fechas_pronostico), by = "fecha") %>% arrange(fecha)
   gg <- panel_objetivo %>% filter(hoja == h) %>% select(fecha, g)
@@ -3434,6 +3460,481 @@ Estas estrategias se eligieron comparando seis procedimientos en las ventanas de
 </div>
 
 
+# Ingeniería de variables para la modelación (entrega 4)
+
+Esta sección fija cómo se construye, en cada origen de pronóstico, la matriz de información de los modelos econométricos. Aplica las decisiones validadas al cierre de la entrega 3:
+
+1. **Recorte de predictores:** cada predictor se limita a los percentiles `r 100 * RECORTE_PROBS[1]` y `r 100 * RECORTE_PROBS[2]` de su ventana de entrenamiento antes de estimar. Los límites se calculan sólo con datos de esa ventana y se aplican también al valor del mes a pronosticar.
+2. **Información por sector:** en manufacturas y construcción los modelos usan las variables de historia larga, y las variables cortas entran sólo por la vía selectiva (selección en tiempo real). En electricidad y minería todas las variables son de historia larga.
+3. **Sin reconstrucción:** ninguna matriz contiene valores estimados antes del inicio de una variable.
+4. **Fuera de los modelos:** las series EMAER sin historia previa y los días laborados.
+
+## Funciones de recorte y verificación de que no usan información futura
+
+<div class="verificar">
+**Qué hace:** define el recorte y comprueba en dos orígenes que los límites dependen sólo de la ventana de entrenamiento. Si se agregan datos posteriores al origen, los límites no cambian. **Qué verificar:** diferencia cero.
+</div>
+
+```{r funciones-recorte}
+limites_recorte <- function(X, filas) {
+  apply(X[filas, , drop = FALSE], 2, quantile, probs = RECORTE_PROBS, na.rm = TRUE, names = FALSE)
+}
+aplicar_recorte <- function(X, lim) {
+  for (j in seq_len(ncol(X))) if (all(is.finite(lim[, j]))) X[, j] <- pmin(pmax(X[, j], lim[1, j]), lim[2, j])
+  X
+}
+# Verificación: límites calculados con la muestra truncada en el origen = límites calculados con la muestra completa
+# restringida a las filas de entrenamiento.
+verificacion_recorte <- map_dfr(c("MANUF", "MIN"), function(h) map_dfr(as.Date(c("2012-01-01", "2020-06-01")), function(o) {
+  X <- paneles_alineados[[h]]; fechas <- paneles_modelo[[h]]$fecha
+  filas <- which(fechas <= o)
+  tibble(hoja = h, origen = o,
+         max_diferencia = max(abs(limites_recorte(X[fechas <= o, , drop = FALSE], seq_along(filas)) - limites_recorte(X, filas)),
+                              na.rm = TRUE))
+}))
+tabla(verificacion_recorte, "Los límites de recorte sólo dependen de la ventana de entrenamiento")
+stopifnot(all(verificacion_recorte$max_diferencia == 0))
+```
+
+## Conjuntos de información por sector
+
+```{r conjuntos-informacion}
+# Variables de los modelos multivariados (factores, ADL y penalizados), según la estrategia validada.
+columnas_modelo <- function(h) {
+  cat_h <- filter(catalogo_modelo, hoja == h, en_estrategias)
+  cat_h$nombre[cat_h$historia_larga]
+}
+conjuntos <- map_dfr(HOJAS_SECTOR, function(h) {
+  cols <- columnas_modelo(h)
+  tibble(hoja = h, variables_multivariadas = length(cols),
+         variables_seleccion_tiempo_real = sum(catalogo_modelo$hoja == h & catalogo_modelo$en_estrategias),
+         inicio_comun_multivariadas = format(max(catalogo_modelo$primera_fecha[catalogo_modelo$nombre %in% cols & catalogo_modelo$hoja == h]), "%Y-%m"),
+         lista = paste(cols, collapse = ", "))
+})
+tabla(conjuntos, "Información de los modelos de la entrega 4 por sector")
+stopifnot(all(map_lgl(HOJAS_SECTOR, ~ all(columnas_modelo(.x) %in% colnames(paneles_alineados[[.x]])))))
+```
+
+<div class="interpretacion">
+Los modelos multivariados usan `r paste0(NOMBRES_SECTOR[conjuntos$hoja], " ", conjuntos$variables_multivariadas, collapse = ", ")` variables, todas disponibles desde `r max(conjuntos$inicio_comun_multivariadas)` o antes. Así, cada modelo se estima con más de 13 años de datos al inicio de la evaluación. La selección en tiempo real puede elegir, además, entre las variables cortas de manufacturas (EMOE y EMAER empalmada) y de construcción (ENEC y EMOE), sólo en los meses en que existen.
+</div>
+
+## Matriz de regresión de los modelos penalizados
+
+<div class="verificar">
+**Qué hace:** define la matriz de los modelos LASSO, Ridge y Elastic Net. Para pronosticar $g_s$ incluye: $g_{s-1}, \dots, g_{s-`r REZAGOS_G`}$; el valor utilizable de cada predictor (contemporáneo si tiene desfase +1); ese mismo valor rezagado un mes; y, en manufacturas, la interacción preespecificada demanda externa × tipo de cambio (catálogo de la entrega 2). Se comprueba que la fila del mes a pronosticar sólo usa información disponible en el origen. **Qué verificar:** dimensiones y la comprobación de disponibilidad.
+</div>
+
+```{r matriz-penalizados}
+matriz_penalizados <- function(h) {
+  p <- paneles_modelo[[h]]; X <- paneles_alineados[[h]][, columnas_modelo(h), drop = FALSE]
+  G <- vapply(seq_len(REZAGOS_G), function(k) dplyr::lag(p$g, k), numeric(nrow(p)))
+  colnames(G) <- paste0("g_rezago_", seq_len(REZAGOS_G))
+  X1 <- apply(X, 2, dplyr::lag, 1); colnames(X1) <- paste0(colnames(X), "_rezago_1")
+  D <- cbind(G, X, X1)
+  if (h == "MANUF") D <- cbind(D, "USA_PROD__va_x_TC__va" = X[, "USA_PROD__va"] * X[, "TC__va"])
+  D
+}
+matrices_penalizados <- map(set_names(HOJAS_SECTOR, HOJAS_SECTOR), matriz_penalizados)
+
+# Comprobación de disponibilidad: la fila del mes objetivo (2026-09) debe estar completa y sus
+# valores deben coincidir con datos que el panel ya contiene en el origen (2026-08) según su desfase.
+comprobacion_fila_final <- imap_dfr(matrices_penalizados, function(D, h) {
+  i_f <- which(paneles_modelo[[h]]$fecha == mes_objetivo)
+  tibble(hoja = h, columnas = ncol(D), filas_completas = sum(complete.cases(D)),
+         primera_fila_completa = format(min(paneles_modelo[[h]]$fecha[complete.cases(D)]), "%Y-%m"),
+         fila_objetivo_completa = all(!is.na(D[i_f, ])),
+         usa_g_del_mes_objetivo = any(grepl("^g_rezago_0", colnames(D))))
+})
+tabla(comprobacion_fila_final, "Matrices de regresión de los modelos penalizados")
+stopifnot(all(comprobacion_fila_final$fila_objetivo_completa), !any(comprobacion_fila_final$usa_g_del_mes_objetivo))
+```
+
+# Diseño de modelos por sector
+
+<div class="verificar">
+**Qué hace:** describe los modelos de la entrega 4. Todos pronostican directamente $g_{t+1}$ con la información disponible en $t$ (regla de disponibilidad validada) y se reestiman en cada origen, de `r format(INICIO_MODELOS, "%Y-%m")` a `r format(mes_objetivo %m-% months(1), "%Y-%m")`. Cada uno se estima con **ventana expansiva** y, salvo la selección en tiempo real, también con **ventana móvil** de `r VENTANA_MOVIL` meses. Los hiperparámetros (rezagos, penalización) se eligen en cada origen por **validación hacia adelante** dentro del entrenamiento: con los últimos `r VALIDACION_MESES` meses de la ventana se pronostica cada mes con datos anteriores a él, y se elige la configuración de menor error cuadrático medio. Nunca se usa el periodo de evaluación.
+</div>
+
+```{r tabla-modelos}
+modelos_entrega4 <- tribble(
+  ~modelo,                         ~familia,                 ~informacion,                                   ~especificacion,                                                     ~hiperparametros,
+  "auto.arima",                    "Benchmark",              "Sólo g",                                        "ARIMA(p,d,q) sin componentes estacionales; orden elegido por AICc", "Orden reelegido en cada origen (validado como benchmark)",
+  "Factores + ARIMA",              "Regresión con errores ARIMA", "Variables de historia larga (recortadas)",  paste(K_FACTORES, "componentes principales como regresores; orden ARIMA del benchmark"), "Ninguno adicional",
+  "Selección en tiempo real",      "Combinación de ARIMAX",  "Todas las elegibles, incluidas las cortas",     "Promedio de los ARIMAX individuales con menor error que el benchmark en los últimos 36 meses", "Ventana del historial y mínimo de errores (fijos)",
+  "ADL con factores",              "Regresión dinámica (MCO)", "Variables de historia larga (recortadas)",   "g_{t+1} = a + Σ g_{t+1-i} (i=1..p) + Σ F_{t+1-j} (j=0..q)",       "p ∈ {1,2,3,6,12} y q ∈ {0,1,2} por validación hacia adelante",
+  "LASSO",                         "Regresión penalizada",   "Rezagos de g, predictores y su rezago (recortados)", "Penalización L1",                                           "λ por validación hacia adelante",
+  "Elastic Net",                   "Regresión penalizada",   "Igual que LASSO",                              "Penalización 0.5·L1 + 0.5·L2",                                       "λ por validación hacia adelante",
+  "Ridge",                         "Regresión penalizada",   "Igual que LASSO",                              "Penalización L2",                                                    "λ por validación hacia adelante")
+tabla(modelos_entrega4, "Modelos econométricos de la entrega 4")
+```
+
+Con los factores conocidos en $t+1$, un VAR de $(g_t, F_t)$ con pronóstico condicional sobre los factores del mes objetivo produce un pronóstico lineal en los mismos regresores del modelo ADL. Por eso el VAR se incluye implícitamente en el ADL y no se estima por separado. Los modelos de parámetros variables en el tiempo se aproximan aquí con las ventanas móviles. Los modelos de espacio de estados, el *machine learning* y las combinaciones se desarrollarán en la entrega 5.
+
+# Evaluación fuera de muestra
+
+## Funciones de estimación y pronóstico
+
+```{r funciones-modelos}
+fechas_modelos <- seq(INICIO_MODELOS, origen_final, by = "month")
+
+filas_entrenamiento <- function(fechas, g, t0, ventana, completas = rep(TRUE, length(g))) {
+  ent <- which(fechas <= t0 & !is.na(g) & completas)
+  if (ventana == "Móvil") ent <- tail(ent, VENTANA_MOVIL)
+  ent
+}
+orden_benchmark <- function(h, f) benchmark[benchmark$hoja == h & benchmark$fecha == f, ]
+
+# Factores de una ventana: recorte y estandarización con las filas de entrenamiento, componentes
+# principales estimados con esas filas y aplicados a las filas pedidas.
+factores_ventana <- function(Xc, filas_ent, filas_salida, k = K_FACTORES) {
+  lim <- limites_recorte(Xc, filas_ent)
+  Xr  <- aplicar_recorte(Xc, lim)
+  mu  <- colMeans(Xr[filas_ent, , drop = FALSE])
+  de  <- apply(Xr[filas_ent, , drop = FALSE], 2, sd); de[!is.finite(de) | de == 0] <- 1
+  Z   <- sweep(sweep(Xr[filas_salida, , drop = FALSE], 2, mu), 2, de, "/")
+  v   <- svd(sweep(sweep(Xr[filas_ent, , drop = FALSE], 2, mu), 2, de, "/"), nu = 0, nv = min(k, ncol(Xc)))$v
+  Z %*% v
+}
+
+# --- Factores + ARIMA ---------------------------------------------------------
+pronosticar_fa_arima <- function(h, f, ventana) {
+  t0 <- f %m-% months(HORIZONTE); p <- paneles_modelo[[h]]
+  Xc <- paneles_alineados[[h]][, columnas_modelo(h), drop = FALSE]
+  ent <- filas_entrenamiento(p$fecha, p$g, t0, ventana, complete.cases(Xc))
+  i_f <- which(p$fecha == f)
+  stopifnot(all(diff(ent) == 1), all(!is.na(Xc[i_f, ])))
+  Fm <- factores_ventana(Xc, ent, c(ent, i_f))
+  o  <- orden_benchmark(h, f)
+  fit <- tryCatch(forecast::Arima(ts(p$g[ent]), order = c(o$p, o$d, o$q), xreg = Fm[seq_along(ent), , drop = FALSE],
+                                  include.mean = o$media, include.drift = o$deriva), error = function(e) NULL)
+  if (is.null(fit)) fit <- tryCatch(forecast::Arima(ts(p$g[ent]), order = c(o$p, o$d, o$q), xreg = Fm[seq_along(ent), , drop = FALSE],
+                                                    include.mean = o$media, include.drift = o$deriva, method = "CSS"), error = function(e) NULL)
+  tibble(hoja = h, fecha = f, modelo = "Factores + ARIMA", ventana_estimacion = ventana, n_entrenamiento = length(ent),
+         pronostico = if (is.null(fit)) NA_real_ else
+           as.numeric(forecast::forecast(fit, xreg = Fm[length(ent) + 1, , drop = FALSE], h = 1)$mean),
+         hiperparametros = paste0("ARIMA(", o$p, ",", o$d, ",", o$q, ")"))
+}
+
+# --- ADL con factores ---------------------------------------------------------
+diseno_adl <- function(g, Fm_todas, filas, p_g, q_f) {
+  # Fila s: 1, g_{s-1},...,g_{s-p}, F_s, F_{s-1},...,F_{s-q}
+  cols <- list(rep(1, length(filas)))
+  for (i in seq_len(p_g)) cols[[length(cols) + 1]] <- g[filas - i]
+  for (j in 0:q_f) for (k in seq_len(ncol(Fm_todas))) cols[[length(cols) + 1]] <- Fm_todas[filas - j, k]
+  do.call(cbind, cols)
+}
+pronosticar_adl <- function(h, f, ventana) {
+  t0 <- f %m-% months(HORIZONTE); p <- paneles_modelo[[h]]
+  Xc <- paneles_alineados[[h]][, columnas_modelo(h), drop = FALSE]
+  completas <- complete.cases(Xc)
+  # Se reservan 12 filas para los rezagos: el entrenamiento empieza 12 meses después del primer dato completo.
+  primera <- min(which(completas & !is.na(p$g))) + max(REJILLA_ADL$p, REJILLA_ADL$q)
+  ent <- filas_entrenamiento(p$fecha, p$g, t0, ventana, completas & seq_along(completas) >= primera)
+  i_f <- which(p$fecha == f)
+  Fm_todas <- matrix(NA_real_, nrow(Xc), K_FACTORES)
+  rango <- (min(ent) - max(REJILLA_ADL$q)):i_f
+  Fm_todas[rango, ] <- factores_ventana(Xc, ent, rango)
+  # Validación hacia adelante dentro del entrenamiento
+  val <- tail(ent, VALIDACION_MESES)
+  ecm <- vapply(seq_len(nrow(REJILLA_ADL)), function(r) {
+    pg <- REJILLA_ADL$p[r]; qf <- REJILLA_ADL$q[r]
+    mean(vapply(val, function(v) {
+      fe <- ent[ent < v]
+      b  <- qr.coef(qr(diseno_adl(p$g, Fm_todas, fe, pg, qf)), p$g[fe]); b[is.na(b)] <- 0
+      (p$g[v] - sum(diseno_adl(p$g, Fm_todas, v, pg, qf) * b))^2
+    }, numeric(1)))
+  }, numeric(1))
+  r  <- which.min(ecm); pg <- REJILLA_ADL$p[r]; qf <- REJILLA_ADL$q[r]
+  b  <- qr.coef(qr(diseno_adl(p$g, Fm_todas, ent, pg, qf)), p$g[ent]); b[is.na(b)] <- 0
+  tibble(hoja = h, fecha = f, modelo = "ADL con factores", ventana_estimacion = ventana, n_entrenamiento = length(ent),
+         pronostico = sum(diseno_adl(p$g, Fm_todas, i_f, pg, qf) * b),
+         hiperparametros = paste0("p=", pg, ", q=", qf))
+}
+
+# --- LASSO, Elastic Net y Ridge -------------------------------------------------
+pronosticar_penalizados <- function(h, f, ventana) {
+  t0 <- f %m-% months(HORIZONTE); p <- paneles_modelo[[h]]; D <- matrices_penalizados[[h]]
+  ent <- filas_entrenamiento(p$fecha, p$g, t0, ventana, complete.cases(D))
+  i_f <- which(p$fecha == f)
+  # Recorte de los predictores (no de los rezagos de g) con la ventana de entrenamiento
+  es_x <- !grepl("^g_rezago_", colnames(D))
+  D[, es_x] <- aplicar_recorte(D[, es_x, drop = FALSE], limites_recorte(D[, es_x, drop = FALSE], ent))
+  y <- p$g
+  val <- tail(ent, VALIDACION_MESES)
+  map_dfr(names(ALFAS_PENALIZADOS), function(m) {
+    a <- ALFAS_PENALIZADOS[[m]]
+    rejilla <- glmnet::glmnet(D[ent, ], y[ent], alpha = a, nlambda = 50)$lambda
+    err <- t(vapply(val, function(v) {
+      fe <- ent[ent < v]
+      fit <- glmnet::glmnet(D[fe, ], y[fe], alpha = a, lambda = rejilla)
+      as.numeric(y[v] - predict(fit, D[v, , drop = FALSE], s = rejilla))   # s = rejilla: una columna por λ
+    }, numeric(length(rejilla))))
+    l_opt <- rejilla[which.min(colMeans(err^2))]
+    fit <- glmnet::glmnet(D[ent, ], y[ent], alpha = a, lambda = rejilla)
+    cf <- as.matrix(coef(fit, s = l_opt))[-1, 1]
+    tibble(hoja = h, fecha = f, modelo = m, ventana_estimacion = ventana, n_entrenamiento = length(ent),
+           pronostico = as.numeric(predict(fit, D[i_f, , drop = FALSE], s = l_opt)),
+           hiperparametros = sprintf("lambda=%.4g", l_opt), lambda = l_opt,
+           variables_no_cero = sum(cf != 0),
+           seleccionadas = paste(names(cf)[cf != 0], collapse = ";"))
+  })
+}
+```
+
+## Estimación con ventanas expansiva y móvil
+
+<div class="verificar">
+**Qué hace:** estima los modelos en cada origen, sector y tipo de ventana, y guarda los pronósticos y los hiperparámetros elegidos. Los cálculos se guardan en caché. Para la selección en tiempo real se recalculan los ARIMAX individuales **con recorte** desde `r format(INICIO_PRONOSTICOS, "%Y-%m")`, porque la selección necesita un historial de errores previo a la evaluación. **Qué verificar:** que no haya pronósticos faltantes y el tiempo de cálculo.
+</div>
+
+```{r estimar-modelos}
+tareas_modelos <- expand_grid(hoja = HOJAS_SECTOR, ventana = c("Expansiva", "Móvil"), fecha = fechas_modelos)
+insumos_modelos <- huella(paneles_alineados, matrices_penalizados, select(catalogo_modelo, hoja, nombre, en_estrategias, historia_larga),
+                          benchmark, fechas_modelos, RECORTE_PROBS, VENTANA_MOVIL, VALIDACION_MESES, REZAGOS_G,
+                          ALFAS_PENALIZADOS, REJILLA_ADL, K_FACTORES, "v1")
+pron_modelos <- con_cache("modelos_entrega4", insumos_modelos, function() {
+  bind_rows(aplicar_en_paralelo(seq_len(nrow(tareas_modelos)), function(i) {
+    h <- tareas_modelos$hoja[i]; v <- tareas_modelos$ventana[i]; f <- tareas_modelos$fecha[i]
+    bind_rows(pronosticar_fa_arima(h, f, v), pronosticar_adl(h, f, v), pronosticar_penalizados(h, f, v))
+  }))
+})
+
+# Selección en tiempo real con ARIMAX recortados (sólo ventana expansiva)
+individuales_recorte <- con_cache(
+  "arimax_individuales_recorte",
+  huella(paneles_modelo, select(catalogo_modelo, hoja, nombre, rezago_alineacion, en_estrategias), benchmark,
+         fechas_pronostico, MIN_ENTRENAMIENTO, RECORTE_PROBS, "v1"),
+  function() {
+    tareas <- filter(catalogo_modelo, en_estrategias)
+    bind_rows(aplicar_en_paralelo(seq_len(nrow(tareas)), function(i)
+      pronosticar_arimax(tareas$hoja[i], tareas$nombre[i], tareas$rezago_alineacion[i], recorte = TRUE)))
+  })
+seleccion_recorte <- map_dfr(HOJAS_SECTOR, ~ combinar_individuales(.x, ind = individuales_recorte))
+pron_seleccion <- seleccion_recorte %>% filter(fecha >= INICIO_MODELOS) %>%
+  transmute(hoja, fecha, modelo = "Selección en tiempo real", ventana_estimacion = "Expansiva",
+            n_entrenamiento = NA_integer_, pronostico = Reducida,
+            hiperparametros = paste0(variables_reducida, " variables seleccionadas"))
+
+pronosticos_modelos <- bind_rows(
+  transmute(filter(benchmark, fecha >= INICIO_MODELOS), hoja, fecha, modelo = "auto.arima", ventana_estimacion = "Expansiva",
+            n_entrenamiento, pronostico, hiperparametros = paste0("ARIMA(", p, ",", d, ",", q, ")")),
+  pron_seleccion, pron_modelos) %>%
+  mutate(especificacion = if_else(modelo %in% c("auto.arima", "Selección en tiempo real"), modelo,
+                                  paste0(modelo, " (", tolower(ventana_estimacion), ")"))) %>%
+  left_join(base_bench, by = c("hoja", "fecha")) %>%
+  left_join(select(panel_objetivo, hoja, fecha, g), by = c("hoja", "fecha")) %>%
+  left_join(transmute(panel_objetivo, hoja, fecha = fecha %m+% months(1), g_previo = g), by = c("hoja", "fecha"))
+
+pronosticos_modelos %>% group_by(hoja, especificacion) %>%
+  summarise(pronosticos = n(), faltantes = sum(is.na(pronostico)), desde = min(fecha), hasta = max(fecha),
+            entrenamiento_inicial = first(n_entrenamiento), .groups = "drop") %>%
+  arrange(match(hoja, HOJAS_SECTOR), especificacion) %>%
+  tabla("Pronósticos generados por modelo y sector", altura = "420px")
+stopifnot(!anyNA(pronosticos_modelos$pronostico))
+```
+
+## Hiperparámetros elegidos
+
+```{r hiperparametros, fig.height = 4.5}
+pron_modelos %>% filter(modelo == "ADL con factores") %>% count(hoja, ventana_estimacion, hiperparametros) %>%
+  group_by(hoja, ventana_estimacion) %>% slice_max(n, n = 3, with_ties = FALSE) %>% ungroup() %>%
+  arrange(match(hoja, HOJAS_SECTOR)) %>%
+  tabla("ADL con factores: combinaciones de rezagos más elegidas (número de orígenes)")
+
+pron_modelos %>% filter(modelo %in% names(ALFAS_PENALIZADOS)) %>%
+  ggplot(aes(fecha, variables_no_cero, color = modelo)) +
+  geom_step(linewidth = 0.5) +
+  facet_grid(ventana_estimacion ~ facet_hoja(hoja)) +
+  scale_color_manual(values = c("LASSO" = "#2563A8", "Elastic Net" = "#D4A017", "Ridge" = "#C0392B")) +
+  labs(title = "Modelos penalizados: número de coeficientes distintos de cero en cada origen",
+       subtitle = "La penalización se elige en cada origen por validación hacia adelante", x = NULL, y = "Coeficientes no nulos", color = NULL)
+```
+
+# Comparación de modelos
+
+## Métricas fuera de muestra frente a `auto.arima`
+
+<div class="verificar">
+**Qué hace:** compara cada modelo con `auto.arima`, la única referencia por decisión validada, en las mismas fechas y en las tres ventanas de evaluación. Reporta RMSE, MAE, sesgo (pronóstico − observado), RMSE relativo (menor que 1 = mejora), acierto en la dirección del cambio y la prueba de Diebold–Mariano (HLN, varianza HAC) frente a `auto.arima`.
+
+No se reportan el MAPE ni el sMAPE: la variación anual cruza el cero con frecuencia, y dividir entre valores cercanos a cero hace que esas métricas exploten sin informar sobre la calidad del pronóstico. Tampoco se reporta la U de Theil, que compara contra el último dato observado; su papel lo cumple el RMSE relativo a `auto.arima`.
+
+**Qué verificar:** los modelos con RMSE relativo menor que 1 en las dos ventanas de referencia (sin COVID y reciente).
+</div>
+
+```{r metricas-modelos}
+metricas_modelos <- pronosticos_modelos %>% group_by(hoja, especificacion, modelo, ventana_estimacion) %>%
+  group_modify(function(d, k) {
+    bind_cols(map_dfr(ventanas$ventana, ~ comparar_con_benchmark(d, .x, anidado = FALSE)),
+              rmse_rel_subperiodos(d) %>% pivot_wider(names_from = subperiodo, values_from = RMSE_rel, names_prefix = "rel ") %>%
+                slice(rep(1, length(ventanas$ventana))))
+  }) %>% ungroup() %>%
+  mutate(p_valor = if_else(modelo == "auto.arima", NA_real_, p_valor))
+
+mostrar_metricas_sector <- function(h) {
+  metricas_modelos %>% filter(hoja == h) %>%
+    select(ventana, especificacion, n, RMSE, MAE, sesgo, RMSE_rel, p_valor, acierto_direccion) %>%
+    arrange(ventana, RMSE_rel) %>%
+    tabla(paste0("Métricas fuera de muestra — ", NOMBRES_SECTOR[h], " (RMSE_rel y p de Diebold-Mariano frente a auto.arima)"),
+          altura = "460px", digitos = 3)
+}
+```
+
+### Manufacturas
+
+```{r metricas-manuf}
+mostrar_metricas_sector("MANUF")
+```
+
+### Construcción
+
+```{r metricas-const}
+mostrar_metricas_sector("CONST")
+```
+
+### Electricidad
+
+```{r metricas-elec}
+mostrar_metricas_sector("ELEC")
+```
+
+### Minería
+
+```{r metricas-min}
+mostrar_metricas_sector("MIN")
+```
+
+## Resumen comparativo y estabilidad por subperiodo
+
+```{r resumen-modelos}
+resumen_modelos <- metricas_modelos %>%
+  filter(modelo != "auto.arima") %>%
+  select(hoja, especificacion, modelo, ventana_estimacion, ventana, RMSE_rel, p_valor,
+         `rel 2012-2019`, `rel 2020-2021`, `rel 2022-2026`) %>%
+  pivot_wider(names_from = ventana, values_from = c(RMSE_rel, p_valor), names_sep = " | ") %>%
+  mutate(peor_ventana_referencia = pmax(`RMSE_rel | Principal sin COVID`, `RMSE_rel | Reciente`),
+         competitivo = `RMSE_rel | Principal sin COVID` < 1 & `RMSE_rel | Reciente` < 1,
+         significativo = competitivo & `p_valor | Principal sin COVID` < 0.10) %>%
+  arrange(match(hoja, HOJAS_SECTOR), peor_ventana_referencia)
+
+resumen_modelos %>%
+  select(hoja, especificacion, `RMSE_rel | Principal sin COVID`, `p_valor | Principal sin COVID`, `RMSE_rel | Reciente`,
+         `p_valor | Reciente`, `RMSE_rel | Principal`, `rel 2012-2019`, `rel 2020-2021`, `rel 2022-2026`, competitivo, significativo) %>%
+  tabla("Resumen: RMSE relativo a auto.arima por ventana y subperiodo (ordenado por la peor ventana de referencia)",
+        altura = "560px", digitos = 3)
+```
+
+```{r grafica-modelos, fig.height = 7}
+metricas_modelos %>% filter(modelo != "auto.arima") %>%
+  mutate(RMSE_rel_graf = pmin(RMSE_rel, 1.4)) %>%
+  ggplot(aes(RMSE_rel_graf, reorder(especificacion, -RMSE_rel_graf), color = ventana, shape = ventana)) +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  geom_point(size = 2.2, position = position_dodge(width = 0.5)) +
+  facet_wrap(~ facet_hoja(hoja), ncol = 2, scales = "free_y") +
+  scale_color_manual(values = c("Principal" = "grey50", "Principal sin COVID" = "#2563A8", "Reciente" = "#C0392B")) +
+  labs(title = "RMSE relativo a auto.arima por modelo y ventana de evaluación",
+       subtitle = "Menor que 1 = mejora sobre auto.arima. Valores mayores que 1.4 se muestran en 1.4",
+       x = "RMSE / RMSE de auto.arima", y = NULL, color = NULL, shape = NULL)
+```
+
+## Ventana expansiva frente a ventana móvil
+
+```{r expansiva-movil}
+expansiva_movil <- metricas_modelos %>%
+  filter(!modelo %in% c("auto.arima", "Selección en tiempo real")) %>%
+  select(hoja, modelo, ventana_estimacion, ventana, RMSE_rel) %>%
+  pivot_wider(names_from = ventana_estimacion, values_from = RMSE_rel) %>%
+  mutate(diferencia_movil_menos_expansiva = `Móvil` - Expansiva,
+         mejor = if_else(`Móvil` < Expansiva, "Móvil", "Expansiva"))
+expansiva_movil %>% count(hoja, ventana, mejor) %>%
+  pivot_wider(names_from = mejor, values_from = n, values_fill = 0) %>%
+  arrange(match(hoja, HOJAS_SECTOR), ventana) %>%
+  tabla("Número de modelos en que gana cada tipo de ventana de estimación")
+expansiva_movil %>% arrange(match(hoja, HOJAS_SECTOR), modelo, ventana) %>%
+  tabla("RMSE relativo a auto.arima con ventana expansiva y móvil", altura = "420px", digitos = 3)
+```
+
+## Errores acumulados frente a `auto.arima`
+
+```{r grafica-errores-acumulados, fig.height = 6.5}
+mejores_por_sector <- resumen_modelos %>% group_by(hoja) %>%
+  slice_min(peor_ventana_referencia, n = 3, with_ties = FALSE) %>% ungroup()
+pronosticos_modelos %>%
+  semi_join(select(mejores_por_sector, hoja, especificacion), by = c("hoja", "especificacion")) %>%
+  group_by(hoja, especificacion) %>% arrange(fecha, .by_group = TRUE) %>%
+  mutate(ganancia_acumulada = cumsum((g - pron_bench)^2 - (g - pronostico)^2)) %>% ungroup() %>%
+  ggplot(aes(fecha, ganancia_acumulada, color = especificacion)) +
+  annotate("rect", xmin = PERIODO_COVID[1], xmax = PERIODO_COVID[2], ymin = -Inf, ymax = Inf, alpha = 0.10, fill = "red") +
+  geom_hline(yintercept = 0) + geom_line(linewidth = 0.6) +
+  facet_wrap(~ facet_hoja(hoja), scales = "free_y", ncol = 2) +
+  labs(title = "Ganancia acumulada frente a auto.arima de los tres mejores modelos por sector",
+       subtitle = "Suma acumulada de (error² de auto.arima − error² del modelo); sube cuando el modelo es mejor",
+       x = NULL, y = NULL, color = NULL) +
+  guides(color = guide_legend(ncol = 2))
+```
+
+## Pronósticos históricos frente a los valores observados
+
+```{r grafica-pronosticos-historicos, fig.height = 6.5}
+mejor_modelo <- resumen_modelos %>% group_by(hoja) %>% slice_min(peor_ventana_referencia, n = 1, with_ties = FALSE) %>% ungroup()
+pronosticos_modelos %>%
+  semi_join(select(mejor_modelo, hoja, especificacion), by = c("hoja", "especificacion")) %>%
+  ggplot(aes(fecha)) +
+  annotate("rect", xmin = PERIODO_COVID[1], xmax = PERIODO_COVID[2], ymin = -Inf, ymax = Inf, alpha = 0.10, fill = "red") +
+  geom_line(aes(y = g), color = "grey15", linewidth = 0.5) +
+  geom_line(aes(y = pron_bench), color = "grey60", linewidth = 0.4, linetype = "dashed") +
+  geom_line(aes(y = pronostico, color = hoja), linewidth = 0.55) +
+  facet_wrap(~ paste0(NOMBRES_SECTOR[hoja], ": ", especificacion), scales = "free_y", ncol = 2) +
+  scale_color_manual(values = COLORES_SECTOR, guide = "none") +
+  labs(title = "Mejor modelo de cada sector: pronóstico a un mes (color), auto.arima (gris discontinuo) y observado (negro)",
+       x = NULL, y = "%")
+```
+
+## Variables seleccionadas por LASSO
+
+<div class="verificar">
+**Qué hace:** calcula con qué frecuencia cada variable tiene coeficiente distinto de cero en el LASSO con ventana expansiva, a lo largo de los orígenes de pronóstico. **Por qué:** es una medida de importancia predictiva interpretable. **Advertencia:** importancia predictiva no implica causalidad, y con predictores correlacionados el LASSO puede alternar entre variables similares.
+</div>
+
+```{r seleccion-lasso, fig.height = 7}
+frecuencia_lasso <- pron_modelos %>% filter(modelo == "LASSO", ventana_estimacion == "Expansiva") %>%
+  select(hoja, fecha, seleccionadas) %>%
+  mutate(variable = str_split(seleccionadas, ";")) %>% unnest(variable) %>% filter(variable != "") %>%
+  count(hoja, variable, name = "origenes") %>%
+  left_join(count(filter(pron_modelos, modelo == "LASSO", ventana_estimacion == "Expansiva"), hoja, name = "total"), by = "hoja") %>%
+  mutate(frecuencia = 100 * origenes / total) %>%
+  group_by(hoja) %>% slice_max(frecuencia, n = 12, with_ties = FALSE) %>% ungroup()
+ggplot(frecuencia_lasso, aes(frecuencia, reorder(variable, frecuencia), fill = hoja)) +
+  geom_col() +
+  facet_wrap(~ facet_hoja(hoja), scales = "free_y", ncol = 2) +
+  scale_fill_manual(values = COLORES_SECTOR, guide = "none") +
+  labs(title = "LASSO (ventana expansiva): porcentaje de orígenes en que cada variable es seleccionada",
+       subtitle = "Las 12 variables más frecuentes por sector", x = "% de orígenes", y = NULL) +
+  theme(axis.text.y = element_text(size = 7))
+```
+
+<div class="interpretacion" id="interpretacion-modelos">
+INTERPRETACION_MODELOS
+</div>
+
+## Especificaciones competitivas por sector
+
+```{r competitivas}
+competitivas <- resumen_modelos %>% filter(competitivo) %>%
+  group_by(hoja) %>% arrange(peor_ventana_referencia, .by_group = TRUE) %>%
+  mutate(rango = row_number()) %>% ungroup() %>%
+  select(hoja, rango, especificacion, `RMSE_rel | Principal sin COVID`, `p_valor | Principal sin COVID`,
+         `RMSE_rel | Reciente`, `p_valor | Reciente`, `RMSE_rel | Principal`, significativo) %>%
+  arrange(match(hoja, HOJAS_SECTOR), rango)
+tabla(competitivas, "Especificaciones competitivas: RMSE relativo a auto.arima menor que 1 en las dos ventanas de referencia", digitos = 3)
+```
+
+<div class="interpretacion" id="interpretacion-competitivas">
+INTERPRETACION_COMPETITIVAS
+</div>
+
+
 # Archivos de resultados {-}
 
 <div class="verificar">
@@ -3494,6 +3995,28 @@ saveRDS(list(paneles_modelo = paneles_modelo, catalogo_modelo = catalogo_modelo,
 stopifnot(all(file.exists(c(archivos_entrega_3, file.path(DIR_RESULTADOS_3, "informacion.rds")))))
 ```
 
+```{r guardar-entrega-4}
+guardar_csv_4 <- function(df, nombre) {
+  ruta <- file.path(DIR_RESULTADOS_4, paste0(nombre, ".csv"))
+  utils::write.csv(df, ruta, row.names = FALSE, fileEncoding = "UTF-8")
+  ruta
+}
+archivos_entrega_4 <- c(
+  guardar_csv_4(pronosticos_modelos, "pronosticos_modelos"),
+  guardar_csv_4(metricas_modelos, "metricas_modelos"),
+  guardar_csv_4(resumen_modelos, "resumen_modelos"),
+  guardar_csv_4(expansiva_movil, "expansiva_vs_movil"),
+  guardar_csv_4(competitivas, "especificaciones_competitivas"),
+  guardar_csv_4(frecuencia_lasso, "frecuencia_seleccion_lasso"),
+  guardar_csv_4(modelos_entrega4, "catalogo_modelos")
+)
+saveRDS(list(pronosticos_modelos = pronosticos_modelos, metricas_modelos = metricas_modelos, resumen_modelos = resumen_modelos,
+             competitivas = competitivas, matrices_penalizados = matrices_penalizados, archivo = ARCHIVO_EXCEL,
+             md5 = unname(tools::md5sum(ARCHIVO_EXCEL)), fecha_ejecucion = Sys.time()),
+        file.path(DIR_RESULTADOS_4, "modelos.rds"))
+stopifnot(all(file.exists(c(archivos_entrega_4, file.path(DIR_RESULTADOS_4, "modelos.rds")))))
+```
+
 ```{r libro-resultados}
 hojas_resultados <- list(
   "LEEME" = NULL,
@@ -3530,7 +4053,14 @@ hojas_resultados <- list(
   "Estrategias_comunes"   = metricas_comunes,
   "Estrategias_pronost"   = pron_estrategias,
   "Reconstruccion"        = reconstruccion,
-  "Estrategia_sector"     = resumen_estrategias
+  "Estrategia_sector"     = resumen_estrategias,
+  "Modelos_catalogo"      = modelos_entrega4,
+  "Modelos_metricas"      = metricas_modelos,
+  "Modelos_resumen"       = resumen_modelos,
+  "Modelos_competitivos"  = competitivas,
+  "Expansiva_vs_movil"    = expansiva_movil,
+  "Seleccion_LASSO"       = frecuencia_lasso,
+  "Modelos_pronosticos"   = select(pronosticos_modelos, -any_of("seleccionadas"))
 )
 descripcion_hojas <- c(
   LEEME = "Esta hoja: contenido del libro",
@@ -3565,7 +4095,14 @@ descripcion_hojas <- c(
   Estrategias_comunes = "Estrategias en las mismas fechas (comparación estricta)",
   Estrategias_pronost = "Pronósticos de las estrategias de información",
   Reconstruccion = "Calidad de la reconstrucción de historias cortas con factores",
-  Estrategia_sector = "Resumen por sector para elegir la estrategia de información")
+  Estrategia_sector = "Resumen por sector para elegir la estrategia de información",
+  Modelos_catalogo = "Modelos econométricos de la entrega 4",
+  Modelos_metricas = "Métricas fuera de muestra de cada modelo frente a auto.arima (entrega 4)",
+  Modelos_resumen = "Resumen por modelo: ventanas, subperiodos y competitividad",
+  Modelos_competitivos = "Especificaciones competitivas por sector",
+  Expansiva_vs_movil = "Comparación de ventanas de estimación expansiva y móvil",
+  Seleccion_LASSO = "Frecuencia con que el LASSO selecciona cada variable",
+  Modelos_pronosticos = "Pronósticos históricos de todos los modelos de la entrega 4")
 hojas_resultados$LEEME <- tibble(
   hoja = names(descripcion_hojas), contenido = unname(descripcion_hojas),
   filas = c(NA, map_int(hojas_resultados[-1], nrow)))
