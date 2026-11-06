@@ -1,0 +1,8 @@
+"modelo","familia","informacion","especificacion","hiperparametros"
+"auto.arima","Benchmark","Sólo g","ARIMA(p,d,q) sin componentes estacionales; orden elegido por AICc","Orden reelegido en cada origen (validado como benchmark)"
+"Factores + ARIMA","Regresión con errores ARIMA","Variables de historia larga (recortadas)","2 componentes principales como regresores; orden ARIMA del benchmark","Ninguno adicional"
+"Selección en tiempo real","Combinación de ARIMAX","Todas las elegibles, incluidas las cortas","Promedio de los ARIMAX individuales con menor error que el benchmark en los últimos 36 meses","Ventana del historial y mínimo de errores (fijos)"
+"ADL con factores","Regresión dinámica (MCO)","Variables de historia larga (recortadas)","g_{t+1} = a + Σ g_{t+1-i} (i=1..p) + Σ F_{t+1-j} (j=0..q)","p ∈ {1,2,3,6,12} y q ∈ {0,1,2} por validación hacia adelante"
+"LASSO","Regresión penalizada","Rezagos de g, predictores y su rezago (recortados)","Penalización L1","λ por validación hacia adelante"
+"Elastic Net","Regresión penalizada","Igual que LASSO","Penalización 0.5·L1 + 0.5·L2","λ por validación hacia adelante"
+"Ridge","Regresión penalizada","Igual que LASSO","Penalización L2","λ por validación hacia adelante"
