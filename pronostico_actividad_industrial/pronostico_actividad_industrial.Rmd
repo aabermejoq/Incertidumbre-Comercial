@@ -1869,7 +1869,10 @@ problemas <- tribble(
   "Tratado en la sección 3 (decisión 3)",
   "Media", "Las muestras cortas están dominadas por 2020–2021", "MANUF: EMAER; CONST: EMOE_CONST",
   "Las correlaciones de muestra completa exageran su relación en tiempos normales",
-  "Evaluar con y sin el periodo COVID, y en la ventana reciente", "Aplicado en la sección 4; se mantiene en la evaluación"
+  "Evaluar con y sin el periodo COVID, y en la ventana reciente", "Aplicado en la sección 4; se mantiene en la evaluación",
+  "Alta", "Variación anual explosiva de predictores desde bases casi nulas", "MANUF: AUTOS (2021-04: +7,134%), EXPORT_AUT; CONST: SHCP (1995, 2009)",
+  "Un solo mes puede dominar la evaluación (RMSE relativo de AUTOS: 17.5 con el mes; 0.84 sin él)",
+  "Recortar cada predictor a los percentiles 1 y 99 de su ventana de entrenamiento", "Propuesto en la entrega 3 (pendiente de validación)"
 ) %>%
   mutate(id = row_number(), .before = 1)
 tabla(problemas, "Problemas identificados y estado al cierre de la entrega 3", altura = "560px")
@@ -2897,6 +2900,11 @@ metricas_benchmarks <- pronosticos_benchmarks %>% left_join(base_bench, by = c("
 metricas_benchmarks %>% select(hoja, ventana, modelo, n, RMSE, MAE, sesgo, RMSE_rel, acierto_direccion, p_valor) %>%
   tabla("Benchmarks: métricas fuera de muestra (RMSE_rel y valor p de Diebold-Mariano frente a auto.arima)",
         altura = "520px", digitos = 3)
+
+# Funciones para citar cifras en las interpretaciones (se calculan, no se escriben a mano).
+rb <- function(h, v, m) sprintf("%.2f", metricas_benchmarks$RMSE_rel[metricas_benchmarks$hoja == h &
+                                 metricas_benchmarks$ventana == v & metricas_benchmarks$modelo == m])
+pct_d1 <- function(h) round(100 * mean(benchmark$d[benchmark$hoja == h] == 1))
 ```
 
 ```{r grafica-ordenes, fig.height = 4.5}
@@ -2925,7 +2933,18 @@ pronosticos_benchmarks %>% filter(modelo == "auto.arima", fecha >= INICIO_EVAL_P
 ```
 
 <div class="interpretacion" id="interpretacion-benchmark">
-INTERPRETACION_BENCHMARK
+**Órdenes elegidos.** `auto.arima` elige modelos estacionarios ($d = 0$) en construcción en todos los orígenes y en manufacturas en el `r 100 - pct_d1("MANUF")`% de ellos. En electricidad elige $d = 1$ en el `r pct_d1("ELEC")`% de los orígenes y en minería en el `r pct_d1("MIN")`%, coherente con la persistencia y los cambios de media de esas series. En construcción el orden es muy estable (p + q = 6).
+
+**Desempeño frente a los benchmarks secundarios** (RMSE relativo a `auto.arima`; mayor que 1 = peor que `auto.arima`):
+
+| Sector | AR(1) directo (sin COVID / reciente) | Último dato (sin COVID / reciente) | Lectura |
+|---|---|---|---|
+| Manufacturas | `r rb("MANUF", "Principal sin COVID", "AR(1) directo")` / `r rb("MANUF", "Reciente", "AR(1) directo")` | `r rb("MANUF", "Principal sin COVID", "Último dato observado")` / `r rb("MANUF", "Reciente", "Último dato observado")` | `auto.arima` es claramente el mejor fuera del COVID; con el COVID, el AR(1) es mejor (`r rb("MANUF", "Principal", "AR(1) directo")`) |
+| Construcción | `r rb("CONST", "Principal sin COVID", "AR(1) directo")` / `r rb("CONST", "Reciente", "AR(1) directo")` | `r rb("CONST", "Principal sin COVID", "Último dato observado")` / `r rb("CONST", "Reciente", "Último dato observado")` | Empata con el AR(1) y supera al último dato |
+| Electricidad | `r rb("ELEC", "Principal sin COVID", "AR(1) directo")` / `r rb("ELEC", "Reciente", "AR(1) directo")` | `r rb("ELEC", "Principal sin COVID", "Último dato observado")` / `r rb("ELEC", "Reciente", "Último dato observado")` | Sin ganador claro; diferencias no significativas |
+| Minería | `r rb("MIN", "Principal sin COVID", "AR(1) directo")` / `r rb("MIN", "Reciente", "AR(1) directo")` | `r rb("MIN", "Principal sin COVID", "Último dato observado")` / `r rb("MIN", "Reciente", "Último dato observado")` | **El último dato es mejor que `auto.arima`** (no significativo) |
+
+La media histórica es el peor benchmark en los cuatro sectores. **Implicación:** `auto.arima` es un benchmark exigente en manufacturas y construcción. En electricidad y minería, en cambio, repetir el último dato observado es igual o más difícil de superar. Por eso, a partir de la entrega 4 cada modelo se comparará con `auto.arima`, que es la referencia validada, y también con el último dato observado.
 </div>
 
 ## Contribución marginal de cada variable
@@ -3010,6 +3029,12 @@ contribucion %>% count(hoja, clasificacion) %>%
   pivot_wider(names_from = clasificacion, values_from = n, values_fill = 0) %>%
   arrange(match(hoja, HOJAS_SECTOR)) %>%
   tabla("Clasificación de las representaciones por su contribución marginal al benchmark")
+
+# Cifras citadas en la interpretación
+rc <- function(h, n, col) sprintf("%.2f", contribucion[[col]][contribucion$hoja == h & contribucion$nombre == n])
+psc <- function(h, n) rc(h, n, rel_psc); rec <- function(h, n) rc(h, n, rel_rec)
+n_clase <- function(h, cl) sum(contribucion$hoja == h & contribucion$clasificacion == cl)
+red <- function(h, n) round(contribucion$reduccion_muestra_pct[contribucion$hoja == h & contribucion$nombre == n])
 ```
 
 ```{r tabla-contribucion-sector}
@@ -3029,25 +3054,62 @@ mostrar_contribucion("ELEC")
 mostrar_contribucion("MIN")
 ```
 
-```{r grafica-contribucion, fig.height = 11}
-contribucion %>% filter(!is.na(.data[[rel_psc]]) | !is.na(.data[[rel_rec]])) %>%
-  select(hoja, nombre, `Principal sin COVID` = all_of(rel_psc), Reciente = all_of(rel_rec)) %>%
-  pivot_longer(c(`Principal sin COVID`, Reciente), names_to = "ventana", values_to = "rel") %>%
-  filter(!is.na(rel)) %>%
-  group_by(hoja) %>% mutate(nombre = reorder(nombre, -rel)) %>% ungroup() %>%
-  ggplot(aes(rel, nombre, color = ventana)) +
-  geom_vline(xintercept = 1, linetype = "dashed") +
-  geom_point(size = 1.4) +
-  facet_wrap(~ facet_hoja(hoja), scales = "free_y", ncol = 2) +
-  scale_color_manual(values = c("Principal sin COVID" = "#2563A8", Reciente = "#C0392B")) +
-  coord_cartesian(xlim = c(0.8, 1.3)) +
-  labs(title = "RMSE relativo al benchmark al agregar cada representación (menor que 1 = mejora)",
-       subtitle = "Eje recortado a [0.8, 1.3]", x = "RMSE / RMSE de auto.arima", y = NULL, color = NULL) +
-  theme(axis.text.y = element_text(size = 5.5))
+```{r funcion-grafica-contribucion}
+graficar_contribucion <- function(hojas, titulo, tam_texto = 7) {
+  contribucion %>% filter(hoja %in% hojas, !is.na(.data[[rel_psc]]) | !is.na(.data[[rel_rec]])) %>%
+    select(hoja, nombre, `Principal sin COVID` = all_of(rel_psc), Reciente = all_of(rel_rec)) %>%
+    pivot_longer(c(`Principal sin COVID`, Reciente), names_to = "ventana", values_to = "rel") %>%
+    filter(!is.na(rel)) %>%
+    group_by(hoja, nombre) %>% mutate(orden = mean(rel)) %>% ungroup() %>%
+    mutate(nombre = reorder(nombre, -orden), rel_graf = pmin(pmax(rel, 0.7), 1.3)) %>%
+    ggplot(aes(rel_graf, nombre, color = ventana)) +
+    geom_vline(xintercept = 1, linetype = "dashed") +
+    geom_point(size = 1.6) +
+    facet_wrap(~ facet_hoja(hoja), scales = "free_y", ncol = 3) +
+    scale_color_manual(values = c("Principal sin COVID" = "#2563A8", Reciente = "#C0392B")) +
+    scale_x_continuous(limits = c(0.7, 1.3)) +
+    labs(title = titulo, subtitle = "Valores fuera de [0.7, 1.3] se muestran en el borde del eje",
+         x = "RMSE / RMSE de auto.arima", y = NULL, color = NULL) +
+    theme(axis.text.y = element_text(size = tam_texto))
+}
+```
+
+```{r grafica-contribucion-manuf, fig.height = 14}
+graficar_contribucion("MANUF", "Manufacturas: RMSE relativo al agregar cada representación (< 1 = mejora)", 6.5)
+```
+
+```{r grafica-contribucion-otros, fig.height = 8}
+graficar_contribucion(c("CONST", "ELEC", "MIN"), "Construcción, electricidad y minería: RMSE relativo (< 1 = mejora)")
 ```
 
 <div class="interpretacion" id="interpretacion-contribucion">
-INTERPRETACION_CONTRIBUCION
+**Resumen.** Agregar una sola variable al benchmark mejora el pronóstico de forma robusta (en las dos ventanas de referencia y con Clark–West significativo al 10%) para `r n_clase("MANUF", "Aporta (robusta)")` de `r sum(contribucion$hoja == "MANUF")` representaciones en manufacturas, `r n_clase("CONST", "Aporta (robusta)")` de `r sum(contribucion$hoja == "CONST")` en construcción, `r n_clase("ELEC", "Aporta (robusta)")` de `r sum(contribucion$hoja == "ELEC")` en electricidad y `r n_clase("MIN", "Aporta (robusta)")` de `r sum(contribucion$hoja == "MIN")` en minería. Las mejoras individuales suelen ser modestas (2–10%). Las excepciones son las variables físicas más cercanas a cada sector.
+
+Variables más informativas por sector (RMSE relativo sin COVID / reciente):
+
+- **Manufacturas:**
+  - Exportaciones no automotrices (`r psc("MANUF", "EXPORT_SNAUT__va")` / `r rec("MANUF", "EXPORT_SNAUT__va")`) y automotrices (`r psc("MANUF", "EXPORT_AUT__va")` / `r rec("MANUF", "EXPORT_AUT__va")`).
+  - Electricidad vendida a grandes empresas (`r psc("MANUF", "ELEC_GRANDES__va")` / `r rec("MANUF", "ELEC_GRANDES__va")`).
+  - EMOE: diferencia anual de la capacidad de planta utilizada (`r psc("MANUF", "EMOE_MANUF3__d12")` / `r rec("MANUF", "EMOE_MANUF3__d12")`).
+  - EMAER empalmada: diferencia anual del balance de trabajadores (`r psc("MANUF", "EMAER_B_TRAB__d12")` / `r rec("MANUF", "EMAER_B_TRAB__d12")`).
+  - En cambio, la producción de EE.UU. no aporta frente a `auto.arima` fuera del COVID (`r psc("MANUF", "USA_PROD__va")` / `r rec("MANUF", "USA_PROD__va")`), aunque sí en 2020–2021. La generación eléctrica tampoco aporta.
+  - Las series EMAER sin historia previa empeoran el pronóstico (entre 1.08 y 1.90) y días laborados no aporta (`r psc("MANUF", "EMAER1__d12")` / `r rec("MANUF", "EMAER1__d12")`). Esto confirma que conviene dejarlas fuera.
+- **Construcción:**
+  - Empleo IMSS eventual (`r psc("CONST", "IMSS_CONST_EV__va")` / `r rec("CONST", "IMSS_CONST_EV__va")`) y permanente (`r psc("CONST", "IMSS_CONST_P__va")` / `r rec("CONST", "IMSS_CONST_P__va")`).
+  - ENEC: valor de la producción, aun con un mes de rezago (`r psc("CONST", "ENEC_OTR__va")` / `r rec("CONST", "ENEC_OTR__va")`).
+  - EMOE de construcción en nivel (0.96–0.98).
+  - Tipo de cambio y componentes de la inversión pública, con mejoras pequeñas pero consistentes (0.98–0.99).
+- **Electricidad:**
+  - La generación (`r psc("ELEC", "CFE1__va")` / `r rec("ELEC", "CFE1__va")`) es la única con aporte robusto.
+  - Las ventas totales y a grandes empresas mejoran mucho en 2012–2019 (`r rc("ELEC", "CFE2__va", "rel 2012-2019")` y `r rc("ELEC", "CFE5__va", "rel 2012-2019")`), pero empeoran en 2022–2026 (`r rc("ELEC", "CFE2__va", "rel 2022-2026")` y `r rc("ELEC", "CFE5__va", "rel 2022-2026")`). Es la misma divergencia documentada en el diagnóstico.
+- **Minería:**
+  - Producción de petróleo (`r psc("MIN", "PETROLEO__va")` / `r rec("MIN", "PETROLEO__va")`), con la mayor mejora individual de los cuatro sectores.
+  - Producción de gas (`r psc("MIN", "GAS__va")` / `r rec("MIN", "GAS__va")`).
+  - Empleo IMSS extractivo e INPP de minería sin petróleo, con mejoras moderadas.
+
+**¿Compensa la información adicional la pérdida de muestra?** En los casos favorables, sí. La capacidad de planta de la EMOE (`r red("MANUF", "EMOE_MANUF3__d12")`% menos muestra de entrenamiento al inicio), la ENEC (`r red("CONST", "ENEC_OTR__va")`%) y la EMOE de construcción (`r red("CONST", "EMOE_CONST1__niv")`%) mejoran al benchmark pese a la reducción. Pero la mayoría de los indicadores EMOE de manufacturas son "inestables" o "no aportan", así que la respuesta depende de la variable y no del bloque.
+
+**Artefacto por bases casi nulas (importante).** El RMSE relativo de `AUTOS__va` en la ventana principal es `r rc("MANUF", "AUTOS__va", "RMSE_rel | Principal")`. Un solo mes lo explica: en abril de 2021 la variación anual de la producción de vehículos es de +7,134%, porque en abril de 2020 se produjeron 3,722 vehículos, y el ARIMAX pronostica una variación del IMAI manufacturero de +1,367%. Sin ese mes, el RMSE relativo es 0.84. Hay casos similares en la inversión pública (acumulados de 12 meses de 1995 y 2009). La variación porcentual no tiene cota superior cuando la base es casi nula. Se propone (para validar) **recortar cada predictor a sus percentiles 1 y 99 calculados en la ventana de entrenamiento** antes de estimar, de modo que la transformación validada no cambia y no se usa información futura.
 </div>
 
 ## Estrategias de información: muestras, paneles desbalanceados y selección en tiempo real
@@ -3218,13 +3280,15 @@ metricas_estrategias %>%
 
 ```{r grafica-estrategias, fig.height = 6}
 metricas_estrategias %>% filter(!is.na(RMSE_rel)) %>%
-  ggplot(aes(RMSE_rel, estrategia, color = ventana, shape = ventana)) +
+  mutate(RMSE_rel_graf = pmin(RMSE_rel, 1.5)) %>%
+  ggplot(aes(RMSE_rel_graf, estrategia, color = ventana, shape = ventana)) +
   geom_vline(xintercept = 1, linetype = "dashed") +
   geom_point(size = 2.4, position = position_dodge(width = 0.5)) +
   facet_wrap(~ facet_hoja(hoja), ncol = 2) +
   scale_color_manual(values = c("Principal" = "grey50", "Principal sin COVID" = "#2563A8", "Reciente" = "#C0392B")) +
   labs(title = "Estrategias de información: RMSE relativo a auto.arima",
-       subtitle = "Cada punto compara la estrategia con el benchmark en las fechas en que ambos tienen pronóstico",
+       subtitle = paste("Cada punto compara la estrategia con el benchmark en las fechas en que ambos tienen pronóstico.",
+                        "Valores mayores que 1.5 (manufacturas, ventana principal, por abril de 2021) se muestran en 1.5"),
        x = "RMSE / RMSE de auto.arima", y = NULL, color = NULL, shape = NULL)
 ```
 
@@ -3247,8 +3311,43 @@ metricas_comunes %>%
   tabla("Comparación estricta: RMSE relativo a auto.arima con las seis estrategias en las mismas fechas", digitos = 3)
 ```
 
+```{r sensibilidad-base-nula}
+# Sensibilidad: el mismo RMSE relativo de la ventana principal sin abril y mayo de 2021
+# (meses con variaciones anuales de vehículos y exportaciones automotrices desde bases casi nulas).
+meses_artefacto <- as.Date(c("2021-04-01", "2021-05-01"))
+sensibilidad_2021 <- pron_estrategias %>% filter(hoja == "MANUF", en_ventana(fecha, "Principal"), !is.na(pronostico)) %>%
+  group_by(estrategia) %>%
+  summarise(RMSE_rel_principal = sqrt(mean((g - pronostico)^2)) / sqrt(mean((g - pron_bench)^2)),
+            RMSE_rel_sin_abr_may_2021 = { x <- !fecha %in% meses_artefacto
+                                          sqrt(mean((g[x] - pronostico[x])^2)) / sqrt(mean((g[x] - pron_bench[x])^2)) },
+            pronostico_2021_04 = pronostico[fecha == meses_artefacto[1]], .groups = "drop") %>%
+  mutate(g_observada_2021_04 = panel_objetivo$g[panel_objetivo$hoja == "MANUF" & panel_objetivo$fecha == meses_artefacto[1]])
+tabla(sensibilidad_2021, "Manufacturas: efecto de abril y mayo de 2021 en la ventana principal", digitos = 3)
+re <- function(h, v, e) sprintf("%.2f", metricas_estrategias$RMSE_rel[metricas_estrategias$hoja == h &
+                                 metricas_estrategias$ventana == v & metricas_estrategias$estrategia == e])
+```
+
 <div class="interpretacion" id="interpretacion-estrategias">
-INTERPRETACION_ESTRATEGIAS
+**Resultados por sector** (RMSE relativo a `auto.arima`; sin COVID / reciente):
+
+- **Manufacturas:**
+  - Los **factores de historia larga** son la mejor estrategia: `r re("MANUF", "Principal sin COVID", "Larga")` / `r re("MANUF", "Reciente", "Larga")`, significativa al 1%.
+  - Agregar las encuestas (EMOE y EMAER) a los factores empeora el resultado. Con la muestra común queda en `r re("MANUF", "Principal sin COVID", "Común")` / `r re("MANUF", "Reciente", "Común")`; con el panel desbalanceado (EM), en `r re("MANUF", "Principal sin COVID", "Desbalanceada (EM)")` / `r re("MANUF", "Reciente", "Desbalanceada (EM)")`. Con 58 de 68 variables provenientes de encuestas, los factores pasan a reflejar el comovimiento de las encuestas y no el de la actividad.
+  - La selección en tiempo real y la combinación de ARIMAX mejoran de forma moderada (≈0.93 / 0.95).
+  - En la ventana principal los resultados están dominados por abril de 2021 (ver la tabla de sensibilidad). Sin esos dos meses, los factores de historia larga son también la mejor estrategia con el periodo COVID (`r sprintf("%.2f", sensibilidad_2021$RMSE_rel_sin_abr_may_2021[sensibilidad_2021$estrategia == "Larga"])`).
+- **Construcción:**
+  - También ganan los **factores de historia larga**: `r re("CONST", "Principal sin COVID", "Larga")` / `r re("CONST", "Reciente", "Larga")`. Les siguen la combinación y la selección en tiempo real (≈0.95 / 0.97) y el panel desbalanceado (`r re("CONST", "Principal sin COVID", "Desbalanceada (EM)")` / `r re("CONST", "Reciente", "Desbalanceada (EM)")`).
+  - Las estrategias que incorporan la ENEC y la EMOE en una muestra común o expansiva empeoran en la ventana reciente (≈1.18–1.19), porque pierden muestra y estabilidad.
+- **Electricidad:**
+  - Tras excluir la ENOE todas las variables son de historia larga, así que las estrategias Larga, Común y Expansiva son idénticas: `r re("ELEC", "Principal sin COVID", "Larga")` / `r re("ELEC", "Reciente", "Larga")`. La ganancia se concentra en 2012–2019 y casi desaparece en 2022–2026.
+  - La **selección en tiempo real** (`r re("ELEC", "Principal sin COVID", "Reducida")` / `r re("ELEC", "Reciente", "Reducida")`) es la más estable, porque deja de usar las ventas de electricidad cuando su relación con el IMAI se rompe.
+- **Minería:**
+  - La **selección en tiempo real** es la mejor (`r re("MIN", "Principal sin COVID", "Reducida")` / `r re("MIN", "Reciente", "Reducida")`, significativa al 1%). Se apoya sobre todo en petróleo y gas.
+  - El panel desbalanceado queda en `r re("MIN", "Principal sin COVID", "Desbalanceada (EM)")` / `r re("MIN", "Reciente", "Desbalanceada (EM)")`, y los factores, en `r re("MIN", "Principal sin COVID", "Larga")` / `r re("MIN", "Reciente", "Larga")`.
+
+La comparación estricta, con las seis estrategias en las mismas fechas, confirma el orden en los cuatro sectores. En construcción esa comparación empieza en 2015-06, porque la estrategia común no existe antes.
+
+**Respuesta a la pregunta central del planteamiento:** en ningún sector compensa sacrificar la muestra histórica para incorporar en bloque las variables de historia corta. La información útil de esas variables se aprovecha mejor de forma selectiva: con selección en tiempo real o como regresores individuales evaluados fuera de muestra.
 </div>
 
 ## Reconstrucción de historias cortas con factores comunes
@@ -3291,7 +3390,13 @@ tabla(reconstruccion, "Reconstrucción por representación", altura = "380px", d
 ```
 
 <div class="interpretacion" id="interpretacion-reconstruccion">
-INTERPRETACION_RECONSTRUCCION
+La reconstrucción con factores **no recupera información real**:
+
+- El $R^2$ mediano es `r sprintf("%.2f", median(reconstruccion$R2_reconstruccion[reconstruccion$hoja == "MANUF"]))` en la EMOE de manufacturas y `r sprintf("%.2f", median(reconstruccion$R2_reconstruccion[reconstruccion$hoja == "CONST"]))` en la ENEC. Es decir, rellenar los años ocultos con los factores da valores más alejados de los reales que usar simplemente la media de cada variable.
+- La correlación mediana entre lo reconstruido y lo observado es baja (`r sprintf("%.2f", median(reconstruccion$correlacion[reconstruccion$hoja == "MANUF"]))` y `r sprintf("%.2f", median(reconstruccion$correlacion[reconstruccion$hoja == "CONST"]))`).
+- Esto explica por qué la estrategia desbalanceada (EM) no supera a la de historia larga: los valores que estima antes del inicio de cada variable son ruido.
+
+**Conclusión:** no conviene reconstruir la historia de las variables cortas con factores; cada variable se usa sólo donde está observada. La EMAER empalmada es distinta, porque su tramo anterior a 2018 son datos observados de otra encuesta, no estimaciones.
 </div>
 
 ## Estrategia de información propuesta por sector
@@ -3313,7 +3418,20 @@ tabla(resumen_estrategias %>% arrange(match(hoja, HOJAS_SECTOR), peor_ventana),
 tabla(mejor_por_sector, "Estrategia con el mejor desempeño en su peor ventana, por sector", digitos = 3)
 ```
 
-ESTRATEGIA_POR_SECTOR
+<div class="interpretacion">
+**Estrategia propuesta (para validar antes de la entrega 4):**
+
+| Sector | Base de información | Variables de historia corta | Mejor estrategia en esta prueba (sin COVID / reciente) |
+|---|---|---|---|
+| Manufacturas | Factores de las 10 variables de historia larga (exportaciones, vehículos, producción de EE.UU., electricidad, empleo IMSS, tipo de cambio, INPP) | EMOE y EMAER empalmada sólo de forma selectiva (individualmente o con selección en tiempo real), no en los factores; EMAER sin historia y días laborados fuera | Larga: `r re("MANUF", "Principal sin COVID", "Larga")` / `r re("MANUF", "Reciente", "Larga")` |
+| Construcción | Factores de las 13 variables de historia larga (empleo IMSS, inversión pública, tipo de cambio, INPP) | ENEC (con un mes de rezago) y EMOE de construcción como candidatas individuales o por selección en tiempo real | Larga: `r re("CONST", "Principal sin COVID", "Larga")` / `r re("CONST", "Reciente", "Larga")` |
+| Electricidad | Selección en tiempo real entre los índices CFE, el empleo y el INPP, con modelos que admitan cambios de parámetros (ventanas móviles) | No aplica: todas son de historia larga | Reducida: `r re("ELEC", "Principal sin COVID", "Reducida")` / `r re("ELEC", "Reciente", "Reducida")` |
+| Minería | Selección en tiempo real; petróleo y gas como núcleo | No aplica | Reducida: `r re("MIN", "Principal sin COVID", "Reducida")` / `r re("MIN", "Reciente", "Reducida")` |
+
+En los cuatro sectores: (i) no se reconstruyen historias con factores; (ii) los predictores se recortan a los percentiles 1 y 99 de la ventana de entrenamiento; (iii) los resultados se comparan con `auto.arima` y con el último dato observado.
+
+Estas estrategias se eligieron comparando seis procedimientos en las ventanas de evaluación, lo que introduce cierta selección. La ventaja se mantiene en las dos ventanas de referencia y en subperiodos, pero en las entregas 4 y 5 los modelos finales se evaluarán con esa misma disciplina y se reportarán todas las alternativas, no sólo la ganadora.
+</div>
 
 
 # Archivos de resultados {-}
@@ -3491,6 +3609,28 @@ tabla(verificacion_libro, paste("Hojas del libro", ARCHIVO_RESULTADOS_XLSX))
 2. Adoptar la EMAER empalmada en balances (sin indicadora) como bloque candidato desde 2004. Las series EMAER sin historia se evaluarían sólo en la ventana reciente y días laborados por separado.
 3. La ENOE (hueco de 2020): evaluar en la entrega 3 su exclusión frente a modelos que admiten faltantes, sin imputar con información posterior.
 4. Usar el AR(1) directo, además del último dato observado, como benchmark de referencia. **Decisión final:** el benchmark de referencia es `auto.arima`; el AR(1) directo, el último dato observado y la media histórica quedan como benchmarks secundarios.
+
+# Resumen de la entrega 3 y puntos para validar {-}
+
+**Qué contiene esta entrega:**
+
+1. **Decisiones de la entrega 2 aplicadas:** ENOE excluida de todo, EMAER empalmada en balances en el panel de manufacturas y `auto.arima` como benchmark de referencia.
+2. **Benchmark `auto.arima`** reestimado en cada uno de los `r length(fechas_pronostico)` orígenes por sector, más tres benchmarks secundarios. Supera a los secundarios en manufacturas fuera del COVID y empata con el AR(1) en construcción. En electricidad y minería el último dato observado es igual o más difícil de superar.
+3. **Contribución marginal** de las `r nrow(contribucion)` representaciones: `r sum(contribucion$clasificacion == "Aporta (robusta)")` aportan de forma robusta al benchmark. Las más informativas son las variables físicas cercanas a cada sector (exportaciones y electricidad industrial en manufacturas; empleo IMSS y ENEC en construcción; generación en electricidad; petróleo y gas en minería).
+4. **Estrategias de información:** en ningún sector conviene sacrificar la muestra histórica para incorporar en bloque las variables cortas. Ganan los factores de historia larga en manufacturas y construcción, y la selección en tiempo real en electricidad y minería.
+5. **Reconstrucción con factores:** no recupera información; las variables cortas se usan sólo donde están observadas.
+6. **Artefacto detectado:** las variaciones anuales desde bases casi nulas (vehículos en abril de 2021) pueden dominar la evaluación.
+7. **Caché de cálculos** (`resultados/cache`): el documento completo se reconstruye en ≈1–2 minutos. Con `USAR_CACHE <- FALSE`, todo se recalcula, lo que tarda ≈5 minutos con 3 núcleos y más en Windows, donde no se usan procesos paralelos.
+
+**Puntos para validar antes de la entrega 4:**
+
+1. **Recorte de predictores** a los percentiles 1 y 99 de cada ventana de entrenamiento, para neutralizar las variaciones anuales desde bases casi nulas sin cambiar las transformaciones validadas.
+2. **Estrategia de información por sector:**
+   - factores de historia larga en manufacturas y construcción, con las variables cortas sólo de forma selectiva;
+   - selección en tiempo real en electricidad y minería, con ventanas que permitan cambios de parámetros en electricidad.
+3. **No reconstruir historias cortas con factores** (EM) en los modelos finales.
+4. **Excluir de los modelos** las series EMAER sin historia previa y los días laborados, que no aportaron.
+5. **Comparar cada modelo** con `auto.arima` (referencia) y con el último dato observado.
 
 # Información de la sesión {-}
 

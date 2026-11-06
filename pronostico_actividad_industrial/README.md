@@ -7,8 +7,8 @@ El proyecto es un solo documento RMarkdown que se desarrolla por entregas. Cada 
 | Entrega | Contenido | Estado |
 |---|---|---|
 | 1 | Configuración, lectura y diagnóstico de datos | Validada |
-| 2 | Construcción de variaciones anuales y transformaciones; prueba de la EMAER histórica | Lista para revisión |
-| 3 | Disponibilidad histórica y estrategia de información | Pendiente |
+| 2 | Construcción de variaciones anuales y transformaciones; prueba de la EMAER histórica | Validada |
+| 3 | Disponibilidad histórica, benchmark auto.arima, contribución marginal y estrategia de información | Lista para revisión |
 | 4 | Benchmarks y modelos econométricos | Pendiente |
 | 5 | Machine learning, factores y combinaciones | Pendiente |
 | 6 | Selección y pronósticos finales | Pendiente |
@@ -25,7 +25,9 @@ pronostico_actividad_industrial/
 └── resultados/
     ├── resultados_pronostico_imai.xlsx       # libro con todas las tablas de resultados
     ├── 01_diagnostico/                       # tablas del diagnóstico (CSV) y datos leídos (RDS)
-    └── 02_variables/                         # variables construidas, paneles por sector y prueba EMAER
+    ├── 02_variables/                         # variables construidas, paneles por sector y prueba EMAER
+    ├── 03_informacion/                       # benchmark, contribución marginal, estrategias y reconstrucción
+    └── cache/                                # cálculos costosos guardados (se reutilizan al ejecutar el Rmd)
 ```
 
 ## Libro corregido
@@ -51,4 +53,4 @@ Desde esta carpeta, en R (≥ 4.2):
 rmarkdown::render("pronostico_actividad_industrial.Rmd")
 ```
 
-También se puede ejecutar chunk por chunk en RStudio. Paquetes: `readxl`, `dplyr`, `tidyr`, `purrr`, `tibble`, `stringr`, `lubridate`, `ggplot2`, `scales`, `patchwork`, `knitr`, `kableExtra`, `zoo`, `tseries`, `strucchange` y `writexl`. El documento no instala paquetes, salvo que se active `INSTALAR_FALTANTES <- TRUE`. La ejecución completa tarda alrededor de un minuto. El HTML generado no se versiona: se reconstruye con el comando anterior.
+También se puede ejecutar chunk por chunk en RStudio. Paquetes: `readxl`, `dplyr`, `tidyr`, `purrr`, `tibble`, `stringr`, `lubridate`, `ggplot2`, `scales`, `patchwork`, `knitr`, `kableExtra`, `zoo`, `tseries`, `strucchange`, `writexl` y `forecast`. El documento no instala paquetes, salvo que se active `INSTALAR_FALTANTES <- TRUE`. Con la caché de `resultados/cache` la ejecución completa tarda ≈1–2 minutos; sin ella (`USAR_CACHE <- FALSE`), ≈5 minutos con 3 núcleos y bastante más en Windows, donde no se paraleliza. El HTML generado no se versiona: se reconstruye con el comando anterior.
