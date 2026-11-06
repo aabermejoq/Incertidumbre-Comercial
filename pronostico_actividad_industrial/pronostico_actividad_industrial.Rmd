@@ -3823,6 +3823,20 @@ resumen_modelos %>%
          `p_valor | Reciente`, `RMSE_rel | Principal`, `rel 2012-2019`, `rel 2020-2021`, `rel 2022-2026`, competitivo, significativo) %>%
   tabla("Resumen: RMSE relativo a auto.arima por ventana y subperiodo (ordenado por la peor ventana de referencia)",
         altura = "560px", digitos = 3)
+
+# Cifras citadas en las interpretaciones (calculadas, no escritas a mano).
+rm4 <- function(h, e, col = "RMSE_rel | Principal sin COVID")
+  sprintf("%.2f", resumen_modelos[[col]][resumen_modelos$hoja == h & resumen_modelos$especificacion == e])
+pm4 <- function(h, e, col = "p_valor | Principal sin COVID") {
+  x <- resumen_modelos[[col]][resumen_modelos$hoja == h & resumen_modelos$especificacion == e]
+  if (x < 0.001) "p < 0.001" else sprintf("p = %.3f", x)
+}
+par4 <- function(h, e) paste0(rm4(h, e), " (", pm4(h, e), ") / ", rm4(h, e, "RMSE_rel | Reciente"),
+                              " (", pm4(h, e, "p_valor | Reciente"), ")")
+rmse4 <- function(h, e, v = "Principal sin COVID")
+  sprintf("%.2f", metricas_modelos$RMSE[metricas_modelos$hoja == h & metricas_modelos$especificacion == e & metricas_modelos$ventana == v])
+dir4 <- function(h, e, v = "Principal sin COVID")
+  sprintf("%.0f%%", metricas_modelos$acierto_direccion[metricas_modelos$hoja == h & metricas_modelos$especificacion == e & metricas_modelos$ventana == v])
 ```
 
 ```{r grafica-modelos, fig.height = 7}
@@ -3915,7 +3929,43 @@ ggplot(frecuencia_lasso, aes(frecuencia, reorder(variable, frecuencia), fill = h
 ```
 
 <div class="interpretacion" id="interpretacion-modelos">
-INTERPRETACION_MODELOS
+**Resultados por sector** (RMSE relativo a `auto.arima`, sin COVID / reciente, con el valor p de Diebold–Mariano):
+
+- **Manufacturas:**
+  - El mejor modelo es **factores + ARIMA con ventana expansiva**: `r par4("MANUF", "Factores + ARIMA (expansiva)")`. Con la ventana móvil el resultado es similar (`r par4("MANUF", "Factores + ARIMA (móvil)")`).
+  - El recorte de predictores eliminó el artefacto de abril de 2021. En la ventana que incluye el COVID el RMSE relativo es ahora `r rm4("MANUF", "Factores + ARIMA (expansiva)", "RMSE_rel | Principal")`; en la entrega 3, sin recorte, era 5.5.
+  - El ADL con factores (`r par4("MANUF", "ADL con factores (expansiva)")`) y la selección en tiempo real (`r par4("MANUF", "Selección en tiempo real")`) también mejoran a `auto.arima`.
+  - Los modelos penalizados con ventana expansiva mejoran sin COVID, pero empeoran en la ventana reciente (LASSO `r par4("MANUF", "LASSO (expansiva)")`). Con ventana móvil empeoran mucho, hasta `r rm4("MANUF", "Elastic Net (móvil)", "RMSE_rel | Reciente")` en la reciente: con 33 predictores y 120 observaciones, la penalización elegida por validación es inestable.
+- **Construcción:**
+  - El mejor modelo es el **ADL con factores con ventana expansiva**: `r par4("CONST", "ADL con factores (expansiva)")`, significativo en las dos ventanas.
+  - Le siguen factores + ARIMA (`r par4("CONST", "Factores + ARIMA (expansiva)")`) y la selección en tiempo real (`r par4("CONST", "Selección en tiempo real")`).
+  - Los penalizados y todas las versiones con ventana móvil no son competitivos.
+- **Electricidad:**
+  - El mejor modelo es el **ADL con factores con ventana móvil**: `r par4("ELEC", "ADL con factores (móvil)")`. La ventana móvil permite que la relación con los índices CFE cambie, lo que es coherente con la divergencia documentada.
+  - Le siguen la selección en tiempo real (`r par4("ELEC", "Selección en tiempo real")`) y el LASSO expansivo (`r par4("ELEC", "LASSO (expansiva)")`).
+- **Minería:**
+  - Los mejores son **Elastic Net y LASSO con ventana expansiva**: `r par4("MIN", "Elastic Net (expansiva)")`.
+  - Le siguen Ridge (`r par4("MIN", "Ridge (expansiva)")`) y la selección en tiempo real (`r par4("MIN", "Selección en tiempo real")`).
+
+**Ventana expansiva frente a móvil.** En manufacturas y construcción la ventana expansiva gana en todos los modelos y en las tres ventanas de evaluación: la historia larga ayuda. En electricidad la ventana móvil gana en los cinco modelos en la ventana sin COVID. En minería el resultado es mixto, y la expansiva gana en la ventana reciente.
+
+**Precisión en puntos porcentuales** (RMSE sin COVID; entre paréntesis, acierto en la dirección del cambio):
+
+| Sector | `auto.arima` | Mejor modelo |
+|---|---|---|
+| Manufacturas | `r rmse4("MANUF", "auto.arima")` pp (`r dir4("MANUF", "auto.arima")`) | `r rmse4("MANUF", "Factores + ARIMA (expansiva)")` pp (`r dir4("MANUF", "Factores + ARIMA (expansiva)")`) |
+| Construcción | `r rmse4("CONST", "auto.arima")` pp | `r rmse4("CONST", "ADL con factores (expansiva)")` pp |
+| Electricidad | `r rmse4("ELEC", "auto.arima")` pp | `r rmse4("ELEC", "ADL con factores (móvil)")` pp |
+| Minería | `r rmse4("MIN", "auto.arima")` pp | `r rmse4("MIN", "Elastic Net (expansiva)")` pp |
+
+En construcción los modelos subestiman el crecimiento de 2022–2026 en alrededor de 1 pp en promedio (ver el sesgo en la tabla del sector).
+
+**Variables que usa el LASSO** (frecuencia de selección, interpretable como importancia predictiva, no causal):
+
+- **Manufacturas:** vehículos, exportaciones automotrices y no automotrices, empleo IMSS permanente, generación eléctrica, electricidad a grandes empresas y la interacción demanda externa × tipo de cambio.
+- **Construcción:** rezagos de $g$, empleo IMSS eventual y permanente, y componentes de la inversión pública.
+- **Electricidad:** ventas totales y a grandes empresas, en casi todos los orígenes, y los rezagos 10–12 de $g$, que reflejan los efectos base.
+- **Minería:** producción de petróleo, el INPP de minería con petróleo rezagado, el empleo IMSS extractivo y varios rezagos de $g$.
 </div>
 
 ## Especificaciones competitivas por sector
@@ -3931,7 +3981,20 @@ tabla(competitivas, "Especificaciones competitivas: RMSE relativo a auto.arima m
 ```
 
 <div class="interpretacion" id="interpretacion-competitivas">
-INTERPRETACION_COMPETITIVAS
+Cada sector tiene entre `r min(table(competitivas$hoja))` y `r max(table(competitivas$hoja))` especificaciones que mejoran a `auto.arima` en las dos ventanas de referencia. Tres advertencias para leer esta lista:
+
+1. **Selección entre muchas especificaciones.** Se compararon 11 especificaciones por sector, así que el mejor resultado de cada uno es algo optimista. Por eso conviene preferir los modelos que son buenos en ambas ventanas y en los subperiodos, más que el primer lugar de una sola ventana.
+2. **Ventana reciente pequeña.** Con 56 pronósticos, la prueba de Diebold–Mariano rara vez es significativa en la ventana reciente, aunque la mejora sea de 10–20%.
+3. **Elección sólo con datos del pasado.** Ninguna de estas especificaciones se eligió con datos del periodo evaluado: las variables, los rezagos y las penalizaciones se escogieron en cada origen con información anterior.
+
+**Candidatos para la entrega 5** (combinaciones y *machine learning*):
+
+| Sector | Candidatos |
+|---|---|
+| Manufacturas | Factores + ARIMA (expansiva y móvil), ADL con factores (expansiva), selección en tiempo real |
+| Construcción | ADL con factores (expansiva), factores + ARIMA (expansiva), selección en tiempo real |
+| Electricidad | ADL con factores (móvil), selección en tiempo real, LASSO y Elastic Net (expansiva), factores + ARIMA (móvil) |
+| Minería | Elastic Net, LASSO y Ridge (expansiva), selección en tiempo real, factores y ADL (móvil) |
 </div>
 
 
@@ -4168,6 +4231,38 @@ tabla(verificacion_libro, paste("Hojas del libro", ARCHIVO_RESULTADOS_XLSX))
 3. **No reconstruir historias cortas con factores** (EM) en los modelos finales.
 4. **Excluir de los modelos** las series EMAER sin historia previa y los días laborados, que no aportaron.
 5. **Comparar cada modelo** con `auto.arima` (referencia) y con el último dato observado.
+
+# Resumen de la entrega 4 y puntos para validar {-}
+
+**Qué contiene esta entrega:**
+
+1. **Decisiones de la entrega 3 aplicadas:**
+   - recorte de predictores con los percentiles 2.5 y 97.5 de cada ventana;
+   - estrategia de información por sector;
+   - sin reconstrucción de historias;
+   - sin series EMAER sin historia ni días laborados;
+   - comparación sólo contra `auto.arima`.
+2. **Seis familias de modelos** en cada sector: factores + ARIMA, selección en tiempo real, ADL con factores, LASSO, Elastic Net y Ridge. Todas salvo la selección en tiempo real se estiman con ventana expansiva y con ventana móvil de 10 años, con hiperparámetros elegidos en cada origen por validación hacia adelante. En total son `r n_distinct(pronosticos_modelos$especificacion) - 1` especificaciones, además de `auto.arima`, con `r format(nrow(pronosticos_modelos), big.mark = ",")` pronósticos históricos.
+3. **Mejores modelos** (RMSE relativo a `auto.arima`, sin COVID / reciente):
+
+   | Sector | Modelo | RMSE relativo |
+   |---|---|---|
+   | Manufacturas | Factores + ARIMA (expansiva) | `r rm4("MANUF", "Factores + ARIMA (expansiva)")` / `r rm4("MANUF", "Factores + ARIMA (expansiva)", "RMSE_rel | Reciente")` |
+   | Construcción | ADL con factores (expansiva) | `r rm4("CONST", "ADL con factores (expansiva)")` / `r rm4("CONST", "ADL con factores (expansiva)", "RMSE_rel | Reciente")` |
+   | Electricidad | ADL con factores (móvil) | `r rm4("ELEC", "ADL con factores (móvil)")` / `r rm4("ELEC", "ADL con factores (móvil)", "RMSE_rel | Reciente")` |
+   | Minería | Elastic Net (expansiva) | `r rm4("MIN", "Elastic Net (expansiva)")` / `r rm4("MIN", "Elastic Net (expansiva)", "RMSE_rel | Reciente")` |
+
+4. **Ventanas de estimación:** la expansiva es preferible en manufacturas y construcción, y la móvil en electricidad.
+5. **Resultados guardados** en `resultados/04_modelos`, en la caché y en el libro de Excel (hojas `Modelos_*`).
+
+**Puntos para validar antes de la entrega 5:**
+
+1. **Candidatos por sector** para la entrega 5: la tabla de la sección "Especificaciones competitivas por sector". Las especificaciones no competitivas, por ejemplo los penalizados con ventana móvil en manufacturas y construcción, se descartarían.
+2. **Alcance de la entrega 5:**
+   - *machine learning* (Random Forest, *gradient boosting* y regresión de vectores de soporte) con los mismos conjuntos de información, el recorte y la validación hacia adelante;
+   - un modelo de parámetros variables en el tiempo en espacio de estados, sobre todo para electricidad;
+   - combinaciones de pronósticos con pesos calculados sólo con errores pasados (promedio simple, inverso del error cuadrático reciente y *stacking* temporal).
+3. **Criterio de selección final:** el mejor desempeño en la peor de las dos ventanas de referencia (sin COVID y reciente), con preferencia por los modelos estables en los subperiodos.
 
 # Información de la sesión {-}
 
