@@ -1,0 +1,226 @@
+"hoja","ventana_estimacion","metodo","fecha_ajuste","configuracion","ecm_validacion","configuraciones_evaluadas"
+"CONST","Expansiva","Gradient boosting",2012-01-01,"profundidad=1, arboles=100",21.5860923303676,9
+"CONST","Expansiva","Gradient boosting",2013-01-01,"profundidad=1, arboles=100",22.1536693701198,9
+"CONST","Expansiva","Gradient boosting",2014-01-01,"profundidad=3, arboles=100",14.1530138923936,9
+"CONST","Expansiva","Gradient boosting",2015-01-01,"profundidad=3, arboles=100",9.90627454626445,9
+"CONST","Expansiva","Gradient boosting",2016-01-01,"profundidad=1, arboles=100",16.2238726411216,9
+"CONST","Expansiva","Gradient boosting",2017-01-01,"profundidad=1, arboles=100",18.1161188686714,9
+"CONST","Expansiva","Gradient boosting",2018-01-01,"profundidad=3, arboles=400",14.2134946253075,9
+"CONST","Expansiva","Gradient boosting",2019-01-01,"profundidad=3, arboles=400",13.4710248945815,9
+"CONST","Expansiva","Gradient boosting",2020-01-01,"profundidad=2, arboles=200",14.5066841884536,9
+"CONST","Expansiva","Gradient boosting",2021-01-01,"profundidad=2, arboles=400",107.25844048736,9
+"CONST","Expansiva","Gradient boosting",2022-01-01,"profundidad=3, arboles=400",274.684766777724,9
+"CONST","Expansiva","Gradient boosting",2023-01-01,"profundidad=3, arboles=400",183.802777280956,9
+"CONST","Expansiva","Gradient boosting",2024-01-01,"profundidad=3, arboles=100",26.3065498281669,9
+"CONST","Expansiva","Gradient boosting",2025-01-01,"profundidad=3, arboles=100",34.3572401356425,9
+"CONST","Expansiva","Gradient boosting",2026-01-01,"profundidad=3, arboles=400",34.3947359282895,9
+"CONST","Expansiva","Random Forest",2012-01-01,"mtry=13, min_hoja=5",20.5538081854455,4
+"CONST","Expansiva","Random Forest",2013-01-01,"mtry=13, min_hoja=15",22.9782023549046,4
+"CONST","Expansiva","Random Forest",2014-01-01,"mtry=6, min_hoja=15",13.3116713327862,4
+"CONST","Expansiva","Random Forest",2015-01-01,"mtry=6, min_hoja=15",8.53951328788315,4
+"CONST","Expansiva","Random Forest",2016-01-01,"mtry=6, min_hoja=15",15.0333886342475,4
+"CONST","Expansiva","Random Forest",2017-01-01,"mtry=6, min_hoja=5",17.5616051853795,4
+"CONST","Expansiva","Random Forest",2018-01-01,"mtry=6, min_hoja=15",14.7995037722261,4
+"CONST","Expansiva","Random Forest",2019-01-01,"mtry=6, min_hoja=15",15.012164913353,4
+"CONST","Expansiva","Random Forest",2020-01-01,"mtry=6, min_hoja=15",16.8970570718098,4
+"CONST","Expansiva","Random Forest",2021-01-01,"mtry=13, min_hoja=5",107.198509402701,4
+"CONST","Expansiva","Random Forest",2022-01-01,"mtry=13, min_hoja=5",284.184191652082,4
+"CONST","Expansiva","Random Forest",2023-01-01,"mtry=13, min_hoja=5",190.197196044,4
+"CONST","Expansiva","Random Forest",2024-01-01,"mtry=13, min_hoja=5",21.9759671885596,4
+"CONST","Expansiva","Random Forest",2025-01-01,"mtry=13, min_hoja=5",27.605491099274,4
+"CONST","Expansiva","Random Forest",2026-01-01,"mtry=6, min_hoja=5",30.8905049491221,4
+"CONST","Expansiva","SVR",2012-01-01,"cost=1, epsilon=0.5",21.0344697272992,6
+"CONST","Expansiva","SVR",2013-01-01,"cost=1, epsilon=0.1",23.6622084823911,6
+"CONST","Expansiva","SVR",2014-01-01,"cost=1, epsilon=0.1",14.7095420276243,6
+"CONST","Expansiva","SVR",2015-01-01,"cost=1, epsilon=0.5",9.97224130683017,6
+"CONST","Expansiva","SVR",2016-01-01,"cost=1, epsilon=0.5",16.0334216331127,6
+"CONST","Expansiva","SVR",2017-01-01,"cost=10, epsilon=0.5",17.2298741516423,6
+"CONST","Expansiva","SVR",2018-01-01,"cost=10, epsilon=0.5",10.3657771313171,6
+"CONST","Expansiva","SVR",2019-01-01,"cost=10, epsilon=0.5",12.8235848968257,6
+"CONST","Expansiva","SVR",2020-01-01,"cost=1, epsilon=0.5",16.5507284708106,6
+"CONST","Expansiva","SVR",2021-01-01,"cost=100, epsilon=0.1",121.50722880999,6
+"CONST","Expansiva","SVR",2022-01-01,"cost=100, epsilon=0.1",348.420483780342,6
+"CONST","Expansiva","SVR",2023-01-01,"cost=10, epsilon=0.5",240.314699598784,6
+"CONST","Expansiva","SVR",2024-01-01,"cost=10, epsilon=0.1",23.0151568658538,6
+"CONST","Expansiva","SVR",2025-01-01,"cost=10, epsilon=0.1",34.148139671058,6
+"CONST","Expansiva","SVR",2026-01-01,"cost=1, epsilon=0.5",26.7449565395155,6
+"ELEC","Expansiva","Gradient boosting",2012-01-01,"profundidad=2, arboles=400",2.71894609037283,9
+"ELEC","Expansiva","Gradient boosting",2013-01-01,"profundidad=1, arboles=400",2.64701132300392,9
+"ELEC","Expansiva","Gradient boosting",2014-01-01,"profundidad=1, arboles=400",1.86437389567154,9
+"ELEC","Expansiva","Gradient boosting",2015-01-01,"profundidad=1, arboles=400",2.05050424122245,9
+"ELEC","Expansiva","Gradient boosting",2016-01-01,"profundidad=2, arboles=200",3.12645862304872,9
+"ELEC","Expansiva","Gradient boosting",2017-01-01,"profundidad=2, arboles=400",4.0921805559342,9
+"ELEC","Expansiva","Gradient boosting",2018-01-01,"profundidad=1, arboles=400",7.08228984832956,9
+"ELEC","Expansiva","Gradient boosting",2019-01-01,"profundidad=1, arboles=400",9.50405092502417,9
+"ELEC","Expansiva","Gradient boosting",2020-01-01,"profundidad=1, arboles=400",7.71361248276351,9
+"ELEC","Expansiva","Gradient boosting",2021-01-01,"profundidad=3, arboles=100",14.2457087358376,9
+"ELEC","Expansiva","Gradient boosting",2022-01-01,"profundidad=3, arboles=400",60.016173940176,9
+"ELEC","Expansiva","Gradient boosting",2023-01-01,"profundidad=3, arboles=400",71.1527214774223,9
+"ELEC","Expansiva","Gradient boosting",2024-01-01,"profundidad=1, arboles=100",15.2849676169329,9
+"ELEC","Expansiva","Gradient boosting",2025-01-01,"profundidad=2, arboles=100",5.2295927730253,9
+"ELEC","Expansiva","Gradient boosting",2026-01-01,"profundidad=1, arboles=100",3.31276339372859,9
+"ELEC","Expansiva","Random Forest",2012-01-01,"mtry=11, min_hoja=5",2.91238216044275,4
+"ELEC","Expansiva","Random Forest",2013-01-01,"mtry=11, min_hoja=5",3.48389666063806,4
+"ELEC","Expansiva","Random Forest",2014-01-01,"mtry=6, min_hoja=5",2.37983694221212,4
+"ELEC","Expansiva","Random Forest",2015-01-01,"mtry=6, min_hoja=5",2.4204267606999,4
+"ELEC","Expansiva","Random Forest",2016-01-01,"mtry=11, min_hoja=15",3.54956773740504,4
+"ELEC","Expansiva","Random Forest",2017-01-01,"mtry=11, min_hoja=15",4.74925851983006,4
+"ELEC","Expansiva","Random Forest",2018-01-01,"mtry=11, min_hoja=15",8.12276094282112,4
+"ELEC","Expansiva","Random Forest",2019-01-01,"mtry=6, min_hoja=5",8.57830451202649,4
+"ELEC","Expansiva","Random Forest",2020-01-01,"mtry=11, min_hoja=5",9.85996123069426,4
+"ELEC","Expansiva","Random Forest",2021-01-01,"mtry=11, min_hoja=5",15.0837632334019,4
+"ELEC","Expansiva","Random Forest",2022-01-01,"mtry=11, min_hoja=5",59.6011187238602,4
+"ELEC","Expansiva","Random Forest",2023-01-01,"mtry=11, min_hoja=5",68.026494707867,4
+"ELEC","Expansiva","Random Forest",2024-01-01,"mtry=6, min_hoja=5",19.4503285237373,4
+"ELEC","Expansiva","Random Forest",2025-01-01,"mtry=11, min_hoja=15",4.16791104828369,4
+"ELEC","Expansiva","Random Forest",2026-01-01,"mtry=11, min_hoja=15",3.09157188611227,4
+"ELEC","Expansiva","SVR",2012-01-01,"cost=1, epsilon=0.1",4.00969452714233,6
+"ELEC","Expansiva","SVR",2013-01-01,"cost=1, epsilon=0.1",4.43251789218661,6
+"ELEC","Expansiva","SVR",2014-01-01,"cost=1, epsilon=0.1",2.73473123323813,6
+"ELEC","Expansiva","SVR",2015-01-01,"cost=1, epsilon=0.1",3.02429657240538,6
+"ELEC","Expansiva","SVR",2016-01-01,"cost=10, epsilon=0.1",3.45294132484538,6
+"ELEC","Expansiva","SVR",2017-01-01,"cost=1, epsilon=0.1",5.9713621662926,6
+"ELEC","Expansiva","SVR",2018-01-01,"cost=1, epsilon=0.1",8.19883309672396,6
+"ELEC","Expansiva","SVR",2019-01-01,"cost=1, epsilon=0.1",9.60659929375329,6
+"ELEC","Expansiva","SVR",2020-01-01,"cost=1, epsilon=0.1",12.1824649648763,6
+"ELEC","Expansiva","SVR",2021-01-01,"cost=1, epsilon=0.1",19.2109941845819,6
+"ELEC","Expansiva","SVR",2022-01-01,"cost=10, epsilon=0.1",112.343302401955,6
+"ELEC","Expansiva","SVR",2023-01-01,"cost=10, epsilon=0.1",114.544867043274,6
+"ELEC","Expansiva","SVR",2024-01-01,"cost=1, epsilon=0.1",11.5804501877123,6
+"ELEC","Expansiva","SVR",2025-01-01,"cost=1, epsilon=0.1",3.54541079752586,6
+"ELEC","Expansiva","SVR",2026-01-01,"cost=1, epsilon=0.1",4.25551804155671,6
+"ELEC","Móvil","Gradient boosting",2012-01-01,"profundidad=3, arboles=400",3.50073488105869,9
+"ELEC","Móvil","Gradient boosting",2013-01-01,"profundidad=1, arboles=400",3.31802700984511,9
+"ELEC","Móvil","Gradient boosting",2014-01-01,"profundidad=2, arboles=200",2.49826606287083,9
+"ELEC","Móvil","Gradient boosting",2015-01-01,"profundidad=1, arboles=400",1.88563720687928,9
+"ELEC","Móvil","Gradient boosting",2016-01-01,"profundidad=2, arboles=400",2.58449531156908,9
+"ELEC","Móvil","Gradient boosting",2017-01-01,"profundidad=2, arboles=400",3.594729732468,9
+"ELEC","Móvil","Gradient boosting",2018-01-01,"profundidad=2, arboles=400",7.19697519583991,9
+"ELEC","Móvil","Gradient boosting",2019-01-01,"profundidad=1, arboles=400",6.0593829288569,9
+"ELEC","Móvil","Gradient boosting",2020-01-01,"profundidad=3, arboles=400",7.8938198279236,9
+"ELEC","Móvil","Gradient boosting",2021-01-01,"profundidad=2, arboles=100",13.978959503473,9
+"ELEC","Móvil","Gradient boosting",2022-01-01,"profundidad=2, arboles=400",51.6346623139883,9
+"ELEC","Móvil","Gradient boosting",2023-01-01,"profundidad=2, arboles=400",58.5470952578924,9
+"ELEC","Móvil","Gradient boosting",2024-01-01,"profundidad=2, arboles=400",20.0083713885668,9
+"ELEC","Móvil","Gradient boosting",2025-01-01,"profundidad=1, arboles=100",4.01351737535909,9
+"ELEC","Móvil","Gradient boosting",2026-01-01,"profundidad=2, arboles=100",4.63172505129068,9
+"ELEC","Móvil","Random Forest",2012-01-01,"mtry=11, min_hoja=5",3.63517585893036,4
+"ELEC","Móvil","Random Forest",2013-01-01,"mtry=11, min_hoja=5",3.56768352055261,4
+"ELEC","Móvil","Random Forest",2014-01-01,"mtry=11, min_hoja=5",3.0091320536208,4
+"ELEC","Móvil","Random Forest",2015-01-01,"mtry=11, min_hoja=5",2.72883185851735,4
+"ELEC","Móvil","Random Forest",2016-01-01,"mtry=6, min_hoja=5",4.84528055401607,4
+"ELEC","Móvil","Random Forest",2017-01-01,"mtry=11, min_hoja=5",5.05985881437395,4
+"ELEC","Móvil","Random Forest",2018-01-01,"mtry=11, min_hoja=5",8.4286143897936,4
+"ELEC","Móvil","Random Forest",2019-01-01,"mtry=6, min_hoja=5",8.54261636198398,4
+"ELEC","Móvil","Random Forest",2020-01-01,"mtry=11, min_hoja=5",13.179306411545,4
+"ELEC","Móvil","Random Forest",2021-01-01,"mtry=11, min_hoja=5",18.359346222063,4
+"ELEC","Móvil","Random Forest",2022-01-01,"mtry=11, min_hoja=5",64.2499139417388,4
+"ELEC","Móvil","Random Forest",2023-01-01,"mtry=11, min_hoja=5",74.5461308948576,4
+"ELEC","Móvil","Random Forest",2024-01-01,"mtry=11, min_hoja=5",21.6257139748043,4
+"ELEC","Móvil","Random Forest",2025-01-01,"mtry=11, min_hoja=5",3.17660945679505,4
+"ELEC","Móvil","Random Forest",2026-01-01,"mtry=11, min_hoja=15",3.5338470490258,4
+"ELEC","Móvil","SVR",2012-01-01,"cost=1, epsilon=0.1",6.46751691449302,6
+"ELEC","Móvil","SVR",2013-01-01,"cost=1, epsilon=0.1",2.70109851100898,6
+"ELEC","Móvil","SVR",2014-01-01,"cost=1, epsilon=0.1",2.59466384664783,6
+"ELEC","Móvil","SVR",2015-01-01,"cost=10, epsilon=0.5",1.88673852526751,6
+"ELEC","Móvil","SVR",2016-01-01,"cost=10, epsilon=0.1",2.66852658444965,6
+"ELEC","Móvil","SVR",2017-01-01,"cost=10, epsilon=0.1",3.29648657078105,6
+"ELEC","Móvil","SVR",2018-01-01,"cost=10, epsilon=0.1",7.01645585916132,6
+"ELEC","Móvil","SVR",2019-01-01,"cost=10, epsilon=0.1",7.01959255629096,6
+"ELEC","Móvil","SVR",2020-01-01,"cost=10, epsilon=0.1",13.2389497774636,6
+"ELEC","Móvil","SVR",2021-01-01,"cost=10, epsilon=0.1",21.1360505325531,6
+"ELEC","Móvil","SVR",2022-01-01,"cost=10, epsilon=0.1",102.780820474218,6
+"ELEC","Móvil","SVR",2023-01-01,"cost=10, epsilon=0.1",99.6956204517869,6
+"ELEC","Móvil","SVR",2024-01-01,"cost=10, epsilon=0.1",11.3214176286912,6
+"ELEC","Móvil","SVR",2025-01-01,"cost=1, epsilon=0.1",4.69635833709468,6
+"ELEC","Móvil","SVR",2026-01-01,"cost=1, epsilon=0.1",4.6704919054475,6
+"MANUF","Expansiva","Gradient boosting",2012-01-01,"profundidad=3, arboles=200",5.07140412015325,9
+"MANUF","Expansiva","Gradient boosting",2013-01-01,"profundidad=2, arboles=200",2.36885110889963,9
+"MANUF","Expansiva","Gradient boosting",2014-01-01,"profundidad=3, arboles=100",3.3306311522268,9
+"MANUF","Expansiva","Gradient boosting",2015-01-01,"profundidad=3, arboles=400",4.54253946705661,9
+"MANUF","Expansiva","Gradient boosting",2016-01-01,"profundidad=3, arboles=400",3.69765268249053,9
+"MANUF","Expansiva","Gradient boosting",2017-01-01,"profundidad=1, arboles=100",2.95690726818363,9
+"MANUF","Expansiva","Gradient boosting",2018-01-01,"profundidad=1, arboles=200",3.73703632185772,9
+"MANUF","Expansiva","Gradient boosting",2019-01-01,"profundidad=1, arboles=200",2.49800969833161,9
+"MANUF","Expansiva","Gradient boosting",2020-01-01,"profundidad=2, arboles=100",2.08139447292546,9
+"MANUF","Expansiva","Gradient boosting",2021-01-01,"profundidad=3, arboles=100",40.3587265612375,9
+"MANUF","Expansiva","Gradient boosting",2022-01-01,"profundidad=3, arboles=400",131.322305956996,9
+"MANUF","Expansiva","Gradient boosting",2023-01-01,"profundidad=3, arboles=400",94.4534229389982,9
+"MANUF","Expansiva","Gradient boosting",2024-01-01,"profundidad=3, arboles=400",6.54998681985364,9
+"MANUF","Expansiva","Gradient boosting",2025-01-01,"profundidad=2, arboles=400",4.26760523321871,9
+"MANUF","Expansiva","Gradient boosting",2026-01-01,"profundidad=2, arboles=400",2.01707767981053,9
+"MANUF","Expansiva","Random Forest",2012-01-01,"mtry=11, min_hoja=5",5.72129310780861,4
+"MANUF","Expansiva","Random Forest",2013-01-01,"mtry=6, min_hoja=5",1.8598118156287,4
+"MANUF","Expansiva","Random Forest",2014-01-01,"mtry=11, min_hoja=5",3.82608456681045,4
+"MANUF","Expansiva","Random Forest",2015-01-01,"mtry=11, min_hoja=5",5.69954256993833,4
+"MANUF","Expansiva","Random Forest",2016-01-01,"mtry=11, min_hoja=15",4.18960425202945,4
+"MANUF","Expansiva","Random Forest",2017-01-01,"mtry=6, min_hoja=15",3.36753311401622,4
+"MANUF","Expansiva","Random Forest",2018-01-01,"mtry=6, min_hoja=5",4.61876189001631,4
+"MANUF","Expansiva","Random Forest",2019-01-01,"mtry=11, min_hoja=5",3.31058449272494,4
+"MANUF","Expansiva","Random Forest",2020-01-01,"mtry=6, min_hoja=15",2.05061398057849,4
+"MANUF","Expansiva","Random Forest",2021-01-01,"mtry=6, min_hoja=5",47.6359094595379,4
+"MANUF","Expansiva","Random Forest",2022-01-01,"mtry=11, min_hoja=5",165.088002484101,4
+"MANUF","Expansiva","Random Forest",2023-01-01,"mtry=11, min_hoja=15",116.224805940104,4
+"MANUF","Expansiva","Random Forest",2024-01-01,"mtry=11, min_hoja=5",5.0240986850313,4
+"MANUF","Expansiva","Random Forest",2025-01-01,"mtry=11, min_hoja=5",3.8358883282236,4
+"MANUF","Expansiva","Random Forest",2026-01-01,"mtry=11, min_hoja=5",1.73105526738176,4
+"MANUF","Expansiva","SVR",2012-01-01,"cost=10, epsilon=0.1",6.87623245607328,6
+"MANUF","Expansiva","SVR",2013-01-01,"cost=1, epsilon=0.5",1.18748532499808,6
+"MANUF","Expansiva","SVR",2014-01-01,"cost=1, epsilon=0.1",3.81657814808359,6
+"MANUF","Expansiva","SVR",2015-01-01,"cost=1, epsilon=0.1",4.18500931946189,6
+"MANUF","Expansiva","SVR",2016-01-01,"cost=1, epsilon=0.1",2.86257813794352,6
+"MANUF","Expansiva","SVR",2017-01-01,"cost=10, epsilon=0.5",3.2011315177054,6
+"MANUF","Expansiva","SVR",2018-01-01,"cost=100, epsilon=0.1",4.22322651330988,6
+"MANUF","Expansiva","SVR",2019-01-01,"cost=1, epsilon=0.1",3.06060808948548,6
+"MANUF","Expansiva","SVR",2020-01-01,"cost=1, epsilon=0.1",1.76360669189913,6
+"MANUF","Expansiva","SVR",2021-01-01,"cost=10, epsilon=0.1",58.0680126283522,6
+"MANUF","Expansiva","SVR",2022-01-01,"cost=100, epsilon=0.1",226.826267680728,6
+"MANUF","Expansiva","SVR",2023-01-01,"cost=100, epsilon=0.1",171.379969224242,6
+"MANUF","Expansiva","SVR",2024-01-01,"cost=10, epsilon=0.1",2.63037200296289,6
+"MANUF","Expansiva","SVR",2025-01-01,"cost=1, epsilon=0.1",1.25639519986159,6
+"MANUF","Expansiva","SVR",2026-01-01,"cost=1, epsilon=0.1",1.38041605242599,6
+"MIN","Expansiva","Gradient boosting",2012-01-01,"profundidad=3, arboles=400",1.38527468326339,9
+"MIN","Expansiva","Gradient boosting",2013-01-01,"profundidad=3, arboles=400",1.89022896847689,9
+"MIN","Expansiva","Gradient boosting",2014-01-01,"profundidad=3, arboles=400",1.18276934381857,9
+"MIN","Expansiva","Gradient boosting",2015-01-01,"profundidad=3, arboles=400",0.954321355458275,9
+"MIN","Expansiva","Gradient boosting",2016-01-01,"profundidad=3, arboles=200",2.25361850150422,9
+"MIN","Expansiva","Gradient boosting",2017-01-01,"profundidad=3, arboles=100",2.48837525951472,9
+"MIN","Expansiva","Gradient boosting",2018-01-01,"profundidad=3, arboles=400",4.99745217638475,9
+"MIN","Expansiva","Gradient boosting",2019-01-01,"profundidad=2, arboles=400",4.95839195066588,9
+"MIN","Expansiva","Gradient boosting",2020-01-01,"profundidad=1, arboles=400",2.90851450537127,9
+"MIN","Expansiva","Gradient boosting",2021-01-01,"profundidad=3, arboles=400",5.6693766255581,9
+"MIN","Expansiva","Gradient boosting",2022-01-01,"profundidad=2, arboles=400",9.69390000505906,9
+"MIN","Expansiva","Gradient boosting",2023-01-01,"profundidad=1, arboles=400",8.88577642859775,9
+"MIN","Expansiva","Gradient boosting",2024-01-01,"profundidad=3, arboles=200",8.785799061,9
+"MIN","Expansiva","Gradient boosting",2025-01-01,"profundidad=3, arboles=200",9.06528356402298,9
+"MIN","Expansiva","Gradient boosting",2026-01-01,"profundidad=1, arboles=400",4.72490662688946,9
+"MIN","Expansiva","Random Forest",2012-01-01,"mtry=8, min_hoja=5",2.20979126151655,4
+"MIN","Expansiva","Random Forest",2013-01-01,"mtry=8, min_hoja=5",2.49047876014216,4
+"MIN","Expansiva","Random Forest",2014-01-01,"mtry=8, min_hoja=5",1.65248011959448,4
+"MIN","Expansiva","Random Forest",2015-01-01,"mtry=5, min_hoja=5",1.46630076254874,4
+"MIN","Expansiva","Random Forest",2016-01-01,"mtry=8, min_hoja=5",2.55779281168829,4
+"MIN","Expansiva","Random Forest",2017-01-01,"mtry=8, min_hoja=5",2.56041826220531,4
+"MIN","Expansiva","Random Forest",2018-01-01,"mtry=8, min_hoja=5",5.48101383686294,4
+"MIN","Expansiva","Random Forest",2019-01-01,"mtry=8, min_hoja=5",6.05677634053139,4
+"MIN","Expansiva","Random Forest",2020-01-01,"mtry=8, min_hoja=5",4.71541578593141,4
+"MIN","Expansiva","Random Forest",2021-01-01,"mtry=8, min_hoja=5",8.44411930574081,4
+"MIN","Expansiva","Random Forest",2022-01-01,"mtry=8, min_hoja=5",11.6840342431558,4
+"MIN","Expansiva","Random Forest",2023-01-01,"mtry=8, min_hoja=5",8.85885583992319,4
+"MIN","Expansiva","Random Forest",2024-01-01,"mtry=8, min_hoja=5",8.39001336549442,4
+"MIN","Expansiva","Random Forest",2025-01-01,"mtry=8, min_hoja=5",9.81947162989602,4
+"MIN","Expansiva","Random Forest",2026-01-01,"mtry=8, min_hoja=5",5.63710319656733,4
+"MIN","Expansiva","SVR",2012-01-01,"cost=10, epsilon=0.1",1.19883628414981,6
+"MIN","Expansiva","SVR",2013-01-01,"cost=1, epsilon=0.1",1.24576257639627,6
+"MIN","Expansiva","SVR",2014-01-01,"cost=1, epsilon=0.1",1.4537516605434,6
+"MIN","Expansiva","SVR",2015-01-01,"cost=10, epsilon=0.1",1.48131336803863,6
+"MIN","Expansiva","SVR",2016-01-01,"cost=10, epsilon=0.1",1.39968229741949,6
+"MIN","Expansiva","SVR",2017-01-01,"cost=1, epsilon=0.1",1.8434279348544,6
+"MIN","Expansiva","SVR",2018-01-01,"cost=10, epsilon=0.1",6.2686326222063,6
+"MIN","Expansiva","SVR",2019-01-01,"cost=1, epsilon=0.1",7.43356396211226,6
+"MIN","Expansiva","SVR",2020-01-01,"cost=1, epsilon=0.1",4.89566619084592,6
+"MIN","Expansiva","SVR",2021-01-01,"cost=100, epsilon=0.1",5.9653726693682,6
+"MIN","Expansiva","SVR",2022-01-01,"cost=10, epsilon=0.1",7.15270708886214,6
+"MIN","Expansiva","SVR",2023-01-01,"cost=100, epsilon=0.1",6.93729646249748,6
+"MIN","Expansiva","SVR",2024-01-01,"cost=1, epsilon=0.1",7.18181987162374,6
+"MIN","Expansiva","SVR",2025-01-01,"cost=1, epsilon=0.1",7.62317150464728,6
+"MIN","Expansiva","SVR",2026-01-01,"cost=10, epsilon=0.5",5.61567327462545,6
