@@ -1,6 +1,6 @@
 ---
 title: "Pronóstico mensual de la actividad industrial de México"
-subtitle: "Entregas 1 a 4 · Diagnóstico, variables, estrategia de información y modelos econométricos"
+subtitle: "Entregas 1 a 5 · Diagnóstico, variables, información, modelos econométricos, machine learning y combinaciones"
 date: "`r format(Sys.Date(), '%Y-%m-%d')`"
 output:
   html_document:
@@ -55,15 +55,15 @@ $$
 
 Todos los modelos pronosticarán directamente $g_{t+1}$. No se pronosticarán niveles ni se usarán modelos estacionales, desestacionalización ni dummies mensuales. El criterio de selección será el desempeño **fuera de muestra**, usando en cada fecha sólo la información que habría estado disponible.
 
-**Este documento contiene las entregas 1 a 4.** Las entregas 1 (diagnóstico), 2 (construcción de variables) y 3 (estrategia de información) ya fueron validadas, y sus decisiones se registran abajo. La entrega 4 (secciones 5 a 8) implementa los modelos econométricos tradicionales con la estrategia de información validada para cada sector. Los evalúa fuera de muestra frente a `auto.arima`, con ventanas expansivas y móviles e hiperparámetros elegidos dentro de cada ventana de entrenamiento. En la sección 2 las transformaciones "provisionales" sólo sirven para describir los datos; las definitivas son las de la sección 3.
+**Este documento contiene las entregas 1 a 5.** Las entregas 1 (diagnóstico), 2 (construcción de variables), 3 (estrategia de información) y 4 (modelos econométricos) ya fueron validadas, y sus decisiones se registran abajo. La entrega 5 (secciones 9 y 10) agrega modelos de *machine learning* y un modelo de parámetros variables en espacio de estados. También evalúa combinaciones de pronósticos con pesos calculados sólo con errores pasados y propone la estrategia de cada sector para la entrega final. En la sección 2 las transformaciones "provisionales" sólo sirven para describir los datos; las definitivas son las de la sección 3.
 
 | Entrega | Contenido | Estado |
 |---|---|---|
 | 1 | Configuración, lectura y diagnóstico de datos | Validada |
 | 2 | Construcción de variaciones anuales y transformaciones; prueba de la EMAER histórica | Validada |
 | 3 | Disponibilidad histórica, contribución marginal y estrategia de información | Validada |
-| 4 | Modelos econométricos frente al benchmark auto.arima | **Este documento (para revisión)** |
-| 5 | Machine learning, factores y combinaciones | Pendiente |
+| 4 | Modelos econométricos frente al benchmark auto.arima | Validada |
+| 5 | Machine learning, parámetros variables y combinaciones de pronósticos | **Este documento (para revisión)** |
 | 6 | Selección y pronósticos finales | Pendiente |
 
 **Principios que se aplican desde esta entrega:**
@@ -91,7 +91,11 @@ paquetes_requeridos <- c(
   "strucchange",  # quiebres estructurales (Bai-Perron), sólo descriptivo
   "writexl",      # libro de resultados en Excel
   "forecast",     # auto.arima (benchmark) y ARIMA con regresores
-  "glmnet"        # LASSO, Ridge y Elastic Net
+  "glmnet",       # LASSO, Ridge y Elastic Net
+  "ranger",       # Random Forest
+  "gbm",          # gradient boosting
+  "e1071",        # regresión de vectores de soporte (SVR)
+  "nnls"          # pesos no negativos del stacking
 )
 
 INSTALAR_FALTANTES <- FALSE   # cambiar a TRUE para instalar desde CRAN
@@ -199,6 +203,20 @@ REJILLA_ADL       <- expand.grid(p = c(1, 2, 3, 6, 12), q = c(0, 1, 2))  # rezag
 INICIO_MODELOS    <- INICIO_EVAL_PRINCIPAL                                # primer mes pronosticado
 DIR_RESULTADOS_4  <- file.path("resultados", "04_modelos")
 dir.create(DIR_RESULTADOS_4, recursive = TRUE, showWarnings = FALSE)
+
+# --- Entrega 5: machine learning, parámetros variables y combinaciones -------------
+METODOS_ML        <- c("Random Forest", "Gradient boosting", "SVR")
+ARBOLES_RF        <- 300
+ARBOLES_GBM       <- c(100, 200, 400)   # número de árboles evaluados en la validación
+TASA_GBM          <- 0.05
+REJILLA_GBM       <- c(1, 2, 3)         # profundidad de interacción
+REJILLA_SVR       <- expand.grid(cost = c(1, 10, 100), epsilon = c(0.1, 0.5))
+MESES_REAJUSTE    <- 12                 # los hiperparámetros de ML se reajustan cada 12 meses
+REJILLA_TVP       <- c(0, 1e-4, 1e-3, 1e-2, 3e-2)  # varianza relativa de los parámetros (Kalman)
+VENTANA_COMBINACION <- 36               # meses de errores pasados para los pesos de las combinaciones
+MIN_ERRORES_COMBINACION <- 12           # con menos errores observados se usa el promedio simple
+DIR_RESULTADOS_5  <- file.path("resultados", "05_avanzados")
+dir.create(DIR_RESULTADOS_5, recursive = TRUE, showWarnings = FALSE)
 
 # --- Prueba de la EMAER histórica (preespecificada, sección 4) ----------------
 INICIO_EMAER_NUEVA   <- as.Date("2018-01-01")  # inicio de la EMAER actual
@@ -549,9 +567,15 @@ decisiones <- tribble(
   17, "Entrega 3: excluir EMAER sin historia y días laborados", "Sí",
      "No entran a ningún modelo",
   18, "Entrega 3: comparar con auto.arima y con el último dato", "Sólo contra auto.arima",
-     "Desde la entrega 4 la única referencia de comparación es auto.arima"
-) %>% mutate(entrega = case_when(n <= 9 ~ 1L, n <= 13 ~ 2L, TRUE ~ 3L), .before = 1)
-tabla(decisiones, "Decisiones validadas al cierre de las entregas 1 a 3")
+     "Desde la entrega 4 la única referencia de comparación es auto.arima",
+  19, "Entrega 4: candidatos por sector (especificaciones competitivas)", "Sí",
+     "Secciones 9 y 10: los candidatos de la entrega 4 forman el primer grupo de combinaciones",
+  20, "Entrega 4: alcance de la entrega 5 (ML, parámetros variables, combinaciones)", "Sí",
+     "Sección 9 (Random Forest, gradient boosting, SVR, Kalman) y sección 10 (combinaciones)",
+  21, "Entrega 4: criterio de selección (peor de las dos ventanas de referencia, estabilidad)", "Sí",
+     "Sección 10: tabla final y estrategia propuesta por sector"
+) %>% mutate(entrega = case_when(n <= 9 ~ 1L, n <= 13 ~ 2L, n <= 18 ~ 3L, TRUE ~ 4L), .before = 1)
+tabla(decisiones, "Decisiones validadas al cierre de las entregas 1 a 4")
 ```
 
 Los valores sospechosos de `CFE4` (2006-01) y `CFE6` (2000-10) se mantienen sin cambios y quedan marcados, como se propuso en el diagnóstico.
@@ -3998,6 +4022,416 @@ Cada sector tiene entre `r min(table(competitivas$hoja))` y `r max(table(competi
 </div>
 
 
+# Modelos avanzados (entrega 5)
+
+Esta sección agrega a los modelos econométricos de la entrega 4 tres métodos de *machine learning* y un modelo de parámetros variables en el tiempo, con las mismas reglas:
+
+- **Información:** la misma matriz de los modelos penalizados (rezagos de $g$, predictores del sector según la estrategia validada, su rezago y, en manufacturas, la interacción preespecificada).
+- **Recorte:** predictores recortados con los percentiles 2.5 y 97.5 de cada ventana.
+- **Pronóstico:** directo de $g_{t+1}$ con la información disponible en $t$.
+- **Comparación:** sólo frente a `auto.arima`.
+
+Los métodos de *machine learning* se estiman con ventana expansiva en los cuatro sectores. En electricidad también con ventana móvil, la que funcionó mejor en la entrega 4.
+
+## *Machine learning*: Random Forest, *gradient boosting* y SVR
+
+<div class="verificar">
+**Qué hace:** estima en cada origen los tres métodos.
+
+| Método | Paquete | Hiperparámetros evaluados |
+|---|---|---|
+| Random Forest | `ranger`, `r ARBOLES_RF` árboles | `mtry` ∈ {p/3, √p} y tamaño mínimo de hoja ∈ {5, 15} |
+| *Gradient boosting* | `gbm`, tasa de aprendizaje `r TASA_GBM`, submuestreo de 80% | profundidad ∈ {`r paste(REJILLA_GBM, collapse = ", ")`} y número de árboles ∈ {`r paste(ARBOLES_GBM, collapse = ", ")`} |
+| SVR | `e1071`, núcleo radial, datos estandarizados en la ventana | costo ∈ {1, 10, 100} y ε ∈ {0.1, 0.5} |
+
+**Cómo se eligen los hiperparámetros:** cada `r MESES_REAJUSTE` meses, desde `r format(INICIO_MODELOS, "%Y-%m")`, por validación hacia adelante con los últimos `r VALIDACION_MESES` meses de la ventana de entrenamiento. Cada uno de esos meses se pronostica con un modelo estimado con datos anteriores a él, y se elige la configuración de menor error. Esa configuración se usa en los 12 meses siguientes, y el modelo se reestima cada mes con los datos nuevos. Con semilla fija.
+
+Reajustar una vez al año, y no cada mes, reduce el costo de cálculo unas 12 veces sin usar información futura. **Qué verificar:** las configuraciones elegidas y que no haya pronósticos faltantes.
+</div>
+
+```{r funciones-ml}
+ventanas_ml   <- bind_rows(tibble(hoja = HOJAS_SECTOR, ventana = "Expansiva"), tibble(hoja = "ELEC", ventana = "Móvil"))
+fechas_ajuste <- fechas_modelos[seq(1, length(fechas_modelos), by = MESES_REAJUSTE)]
+
+# Datos de una ventana: matriz de los modelos penalizados con recorte de predictores en esa ventana
+# y sin columnas constantes en el entrenamiento.
+datos_ventana_ml <- function(h, t0, ventana) {
+  p <- paneles_modelo[[h]]; D <- matrices_penalizados[[h]]
+  ent <- filas_entrenamiento(p$fecha, p$g, t0, ventana, complete.cases(D))
+  es_x <- !grepl("^g_rezago_", colnames(D))
+  D[, es_x] <- aplicar_recorte(D[, es_x, drop = FALSE], limites_recorte(D[, es_x, drop = FALSE], ent))
+  D <- D[, apply(D[ent, , drop = FALSE], 2, sd) > 0, drop = FALSE]
+  list(D = D, y = p$g, ent = ent, fechas = p$fecha)
+}
+
+configuraciones_ml <- function(metodo, p) {
+  switch(metodo,
+    "Random Forest"     = expand.grid(mtry = unique(pmax(1, c(round(p / 3), round(sqrt(p))))), min_hoja = c(5, 15)),
+    "Gradient boosting" = expand.grid(profundidad = REJILLA_GBM, arboles = ARBOLES_GBM),
+    "SVR"               = REJILLA_SVR)
+}
+
+# Ajusta un método con una configuración (o con todas las de gbm, que comparten ajuste) y devuelve los pronósticos.
+pronosticos_ml <- function(metodo, X, y, Xn, conf) {
+  switch(metodo,
+    "Random Forest" = vapply(seq_len(nrow(conf)), function(i) {
+      fit <- ranger::ranger(x = X, y = y, num.trees = ARBOLES_RF, mtry = conf$mtry[i], min.node.size = conf$min_hoja[i],
+                            num.threads = 1, seed = SEMILLA)
+      predict(fit, data = Xn)$predictions
+    }, numeric(nrow(Xn))),
+    "Gradient boosting" = {
+      out <- matrix(NA_real_, nrow(Xn), nrow(conf))
+      for (d in unique(conf$profundidad)) {
+        set.seed(SEMILLA)
+        fit <- gbm::gbm.fit(x = as.data.frame(X), y = y, distribution = "gaussian", n.trees = max(conf$arboles),
+                            interaction.depth = d, shrinkage = TASA_GBM, bag.fraction = 0.8, verbose = FALSE)
+        cols <- which(conf$profundidad == d)
+        out[, cols] <- predict(fit, newdata = as.data.frame(Xn), n.trees = conf$arboles[cols])
+      }
+      out
+    },
+    "SVR" = vapply(seq_len(nrow(conf)), function(i) {
+      fit <- e1071::svm(X, y, type = "eps-regression", kernel = "radial", cost = conf$cost[i],
+                        epsilon = conf$epsilon[i], scale = TRUE)
+      as.numeric(predict(fit, Xn))
+    }, numeric(nrow(Xn))))
+}
+
+# Validación hacia adelante en una fecha de ajuste: elige la configuración de menor error.
+afinar_ml <- function(h, ventana, metodo, f) {
+  dv <- datos_ventana_ml(h, f %m-% months(HORIZONTE), ventana)
+  conf <- configuraciones_ml(metodo, ncol(dv$D))
+  val <- tail(dv$ent, VALIDACION_MESES)
+  err <- t(vapply(val, function(v) {
+    fe <- dv$ent[dv$ent < v]
+    as.numeric(dv$y[v] - pronosticos_ml(metodo, dv$D[fe, , drop = FALSE], dv$y[fe], dv$D[v, , drop = FALSE], conf))
+  }, numeric(nrow(conf))))
+  mejor <- which.min(colMeans(err^2))
+  # Importancia de las variables en la fecha de ajuste (permutación para RF; influencia relativa para gbm)
+  importancia <- NULL
+  if (metodo == "Random Forest") {
+    fit <- ranger::ranger(x = dv$D[dv$ent, , drop = FALSE], y = dv$y[dv$ent], num.trees = ARBOLES_RF,
+                          mtry = conf$mtry[mejor], min.node.size = conf$min_hoja[mejor], importance = "permutation",
+                          num.threads = 1, seed = SEMILLA)
+    importancia <- fit$variable.importance
+  } else if (metodo == "Gradient boosting") {
+    set.seed(SEMILLA)
+    fit <- gbm::gbm.fit(x = as.data.frame(dv$D[dv$ent, , drop = FALSE]), y = dv$y[dv$ent], distribution = "gaussian",
+                        n.trees = conf$arboles[mejor], interaction.depth = conf$profundidad[mejor], shrinkage = TASA_GBM,
+                        bag.fraction = 0.8, verbose = FALSE)
+    s <- gbm::summary.gbm(fit, plotit = FALSE, n.trees = conf$arboles[mejor]); importancia <- setNames(s$rel.inf, s$var)
+  }
+  list(resumen = tibble(hoja = h, ventana_estimacion = ventana, metodo = metodo, fecha_ajuste = f,
+                        configuracion = paste(names(conf), unlist(conf[mejor, ]), sep = "=", collapse = ", "),
+                        ecm_validacion = min(colMeans(err^2)), configuraciones_evaluadas = nrow(conf)),
+       conf = conf[mejor, , drop = FALSE],
+       importancia = if (is.null(importancia)) NULL else
+         tibble(hoja = h, ventana_estimacion = ventana, metodo = metodo, fecha_ajuste = f,
+                variable = names(importancia), importancia = as.numeric(importancia)))
+}
+
+pronosticar_ml <- function(h, ventana, metodo, f, conf) {
+  dv <- datos_ventana_ml(h, f %m-% months(HORIZONTE), ventana)
+  i_f <- which(dv$fechas == f)
+  tibble(hoja = h, fecha = f, modelo = metodo, ventana_estimacion = ventana, n_entrenamiento = length(dv$ent),
+         pronostico = as.numeric(pronosticos_ml(metodo, dv$D[dv$ent, , drop = FALSE], dv$y[dv$ent],
+                                                dv$D[i_f, , drop = FALSE], conf)),
+         hiperparametros = paste(names(conf), unlist(conf), sep = "=", collapse = ", "))
+}
+```
+
+```{r estimar-ml}
+tareas_ajuste <- crossing(ventanas_ml, metodo = METODOS_ML, fecha_ajuste = fechas_ajuste)
+insumos_ml <- huella(matrices_penalizados, paneles_modelo, fechas_modelos, RECORTE_PROBS, VENTANA_MOVIL, VALIDACION_MESES,
+                     ARBOLES_RF, ARBOLES_GBM, TASA_GBM, REJILLA_GBM, REJILLA_SVR, MESES_REAJUSTE, SEMILLA, "v1")
+ajustes_ml <- con_cache("ml_ajustes", insumos_ml, function()
+  aplicar_en_paralelo(seq_len(nrow(tareas_ajuste)), function(i)
+    afinar_ml(tareas_ajuste$hoja[i], tareas_ajuste$ventana[i], tareas_ajuste$metodo[i], tareas_ajuste$fecha_ajuste[i])))
+resumen_ajustes_ml <- map_dfr(ajustes_ml, "resumen")
+importancia_ml     <- map_dfr(ajustes_ml, "importancia")
+
+tareas_pron_ml <- crossing(ventanas_ml, metodo = METODOS_ML, fecha = fechas_modelos) %>%
+  mutate(fecha_ajuste = fechas_ajuste[findInterval(fecha, fechas_ajuste)])
+pron_ml <- con_cache("ml_pronosticos", huella(insumos_ml, "pronosticos"), function()
+  bind_rows(aplicar_en_paralelo(seq_len(nrow(tareas_pron_ml)), function(i) {
+    k <- which(tareas_ajuste$hoja == tareas_pron_ml$hoja[i] & tareas_ajuste$ventana == tareas_pron_ml$ventana[i] &
+               tareas_ajuste$metodo == tareas_pron_ml$metodo[i] & tareas_ajuste$fecha_ajuste == tareas_pron_ml$fecha_ajuste[i])
+    pronosticar_ml(tareas_pron_ml$hoja[i], tareas_pron_ml$ventana[i], tareas_pron_ml$metodo[i], tareas_pron_ml$fecha[i],
+                   ajustes_ml[[k]]$conf)
+  })))
+stopifnot(!anyNA(pron_ml$pronostico), nrow(pron_ml) == nrow(tareas_pron_ml))
+
+resumen_ajustes_ml %>% count(hoja, ventana_estimacion, metodo, configuracion) %>%
+  group_by(hoja, ventana_estimacion, metodo) %>% slice_max(n, n = 2, with_ties = FALSE) %>% ungroup() %>%
+  arrange(match(hoja, HOJAS_SECTOR), metodo) %>%
+  tabla(paste("Configuraciones de hiperparámetros más elegidas (número de fechas de ajuste, de", length(fechas_ajuste), ")"))
+```
+
+## Parámetros variables en el tiempo (espacio de estados y filtro de Kalman)
+
+<div class="verificar">
+**Qué hace:** estima una regresión con coeficientes que evolucionan como caminata aleatoria, motivada por los cambios de relación documentados, sobre todo en electricidad:
+$$g_s = z_s'\beta_s + \varepsilon_s,\qquad \beta_s = \beta_{s-1} + \eta_s,\qquad \varepsilon_s \sim N(0, \sigma^2),\quad \eta_s \sim N(0, q\,\sigma^2 I).$$
+
+- **Regresores:** $z_s = (1, g_{s-1}, g_{s-12}, F_{1,s}, F_{2,s})$. Los factores salen de las variables de historia larga del sector (recortadas), y $g_{s-12}$ recoge los efectos base.
+- **Estimación:** el filtro de Kalman actualiza $\beta$ cada mes. $\sigma^2$ es la varianza residual de MCO en la ventana.
+- **Varianza relativa $q$:** se elige en cada origen entre {`r paste(REJILLA_TVP, collapse = ", ")`} con los errores de predicción a un paso que el propio filtro genera en los últimos `r VALIDACION_MESES` meses del entrenamiento. Son errores recursivos y genuinamente fuera de muestra. $q = 0$ equivale a coeficientes constantes estimados recursivamente.
+
+**Qué verificar:** el valor de $q$ elegido en cada sector.
+</div>
+
+```{r modelo-tvp}
+filtro_kalman <- function(Z, y, q, b0, P0, s2) {
+  k <- ncol(Z); b <- b0; P <- P0; e <- numeric(nrow(Z)); Q <- diag(q * s2, k)
+  for (i in seq_len(nrow(Z))) {
+    P <- P + Q
+    z <- Z[i, ]; f <- as.numeric(t(z) %*% P %*% z) + s2
+    e[i] <- y[i] - sum(z * b)
+    K <- (P %*% z) / f
+    b <- b + as.numeric(K) * e[i]
+    P <- P - K %*% t(z) %*% P
+  }
+  list(b = b, e = e)
+}
+pronosticar_tvp <- function(h, f, ventana = "Expansiva") {
+  t0 <- f %m-% months(HORIZONTE); p <- paneles_modelo[[h]]
+  Xc <- paneles_alineados[[h]][, columnas_modelo(h), drop = FALSE]
+  completas <- complete.cases(Xc)
+  primera <- min(which(completas & !is.na(p$g))) + 12
+  ent <- filas_entrenamiento(p$fecha, p$g, t0, ventana, completas & seq_along(completas) >= primera)
+  i_f <- which(p$fecha == f)
+  Fm <- factores_ventana(Xc, ent, c(ent, i_f))
+  Zr <- cbind(p$g[c(ent, i_f) - 1], p$g[c(ent, i_f) - 12], Fm)
+  n <- length(ent)
+  mu <- colMeans(Zr[1:n, ]); de <- apply(Zr[1:n, ], 2, sd)
+  Z <- cbind(1, sweep(sweep(Zr, 2, mu), 2, de, "/"))
+  y <- p$g[ent]
+  n0 <- 36
+  ols <- qr.coef(qr(Z[1:n, ]), y); s2 <- sum((y - Z[1:n, ] %*% ols)^2) / (n - ncol(Z))
+  b0 <- qr.coef(qr(Z[1:n0, ]), y[1:n0])
+  P0 <- solve(crossprod(Z[1:n0, ])) * s2 * 10
+  res <- map(REJILLA_TVP, ~ filtro_kalman(Z[(n0 + 1):n, , drop = FALSE], y[(n0 + 1):n], .x, b0, P0, s2))
+  ecm <- map_dbl(res, ~ mean(tail(.x$e, VALIDACION_MESES)^2))
+  j <- which.min(ecm)
+  tibble(hoja = h, fecha = f, modelo = "Parámetros variables (Kalman)", ventana_estimacion = ventana,
+         n_entrenamiento = n, pronostico = sum(Z[n + 1, ] * res[[j]]$b),
+         hiperparametros = paste0("q=", REJILLA_TVP[j]))
+}
+pron_tvp <- con_cache("tvp_kalman", huella(paneles_alineados, paneles_modelo, fechas_modelos, REJILLA_TVP, RECORTE_PROBS,
+                                           VALIDACION_MESES, K_FACTORES, "v1"),
+                      function() bind_rows(aplicar_en_paralelo(seq_len(length(HOJAS_SECTOR) * length(fechas_modelos)), function(i) {
+                        h <- unname(HOJAS_SECTOR[(i - 1) %/% length(fechas_modelos) + 1]); f <- fechas_modelos[(i - 1) %% length(fechas_modelos) + 1]
+                        pronosticar_tvp(h, f)
+                      })))
+stopifnot(!anyNA(pron_tvp$pronostico))
+pron_tvp %>% count(hoja, hiperparametros) %>% group_by(hoja) %>% mutate(pct = 100 * n / sum(n)) %>% ungroup() %>%
+  arrange(match(hoja, HOJAS_SECTOR), hiperparametros) %>%
+  tabla("Parámetros variables: varianza relativa q elegida (porcentaje de orígenes)", digitos = 1)
+```
+
+## Resultados de los modelos avanzados
+
+```{r metricas-avanzados}
+pronosticos_avanzados <- bind_rows(pron_ml, pron_tvp) %>%
+  mutate(especificacion = if_else(modelo == "Parámetros variables (Kalman)", modelo,
+                                  paste0(modelo, " (", tolower(ventana_estimacion), ")"))) %>%
+  left_join(base_bench, by = c("hoja", "fecha")) %>%
+  left_join(select(panel_objetivo, hoja, fecha, g), by = c("hoja", "fecha")) %>%
+  left_join(transmute(panel_objetivo, hoja, fecha = fecha %m+% months(1), g_previo = g), by = c("hoja", "fecha"))
+
+evaluar_especificaciones <- function(pron) {
+  pron %>% group_by(hoja, especificacion) %>%
+    group_modify(function(d, k) {
+      bind_cols(map_dfr(ventanas$ventana, ~ comparar_con_benchmark(d, .x, anidado = FALSE)),
+                rmse_rel_subperiodos(d) %>% pivot_wider(names_from = subperiodo, values_from = RMSE_rel, names_prefix = "rel ") %>%
+                  slice(rep(1, length(ventanas$ventana))))
+    }) %>% ungroup()
+}
+resumir_especificaciones <- function(m) {
+  m %>% select(hoja, especificacion, ventana, RMSE_rel, p_valor, `rel 2012-2019`, `rel 2020-2021`, `rel 2022-2026`) %>%
+    pivot_wider(names_from = ventana, values_from = c(RMSE_rel, p_valor), names_sep = " | ") %>%
+    mutate(peor_ventana_referencia = pmax(`RMSE_rel | Principal sin COVID`, `RMSE_rel | Reciente`),
+           competitivo = `RMSE_rel | Principal sin COVID` < 1 & `RMSE_rel | Reciente` < 1,
+           estable = `rel 2012-2019` < 1 & `rel 2022-2026` < 1) %>%
+    arrange(match(hoja, HOJAS_SECTOR), peor_ventana_referencia)
+}
+metricas_avanzados <- evaluar_especificaciones(pronosticos_avanzados)
+resumen_avanzados  <- resumir_especificaciones(metricas_avanzados)
+resumen_avanzados %>%
+  select(hoja, especificacion, `RMSE_rel | Principal sin COVID`, `p_valor | Principal sin COVID`, `RMSE_rel | Reciente`,
+         `p_valor | Reciente`, `RMSE_rel | Principal`, `rel 2012-2019`, `rel 2020-2021`, `rel 2022-2026`, competitivo) %>%
+  tabla("Modelos avanzados: RMSE relativo a auto.arima por ventana y subperiodo (p de Diebold-Mariano)", altura = "460px", digitos = 3)
+```
+
+```{r importancia-ml, fig.height = 7}
+importancia_ml %>% filter(ventana_estimacion == "Expansiva", metodo == "Random Forest") %>%
+  group_by(hoja, variable) %>% summarise(importancia = mean(pmax(importancia, 0)), .groups = "drop") %>%
+  group_by(hoja) %>% mutate(importancia = 100 * importancia / sum(importancia)) %>%
+  slice_max(importancia, n = 10, with_ties = FALSE) %>% ungroup() %>%
+  ggplot(aes(importancia, reorder(variable, importancia), fill = hoja)) + geom_col() +
+  facet_wrap(~ facet_hoja(hoja), scales = "free_y", ncol = 2) +
+  scale_fill_manual(values = COLORES_SECTOR, guide = "none") +
+  labs(title = "Random Forest: importancia por permutación (promedio de las fechas de ajuste, % del total)",
+       subtitle = "Importancia predictiva dentro de la muestra de entrenamiento; no implica causalidad",
+       x = "% de la importancia total", y = NULL) +
+  theme(axis.text.y = element_text(size = 7))
+```
+
+<div class="interpretacion" id="interpretacion-ml">
+INTERPRETACION_ML
+</div>
+
+# Ensemble y combinación de pronósticos
+
+<div class="verificar">
+**Qué hace:** combina pronósticos de dos grupos de modelos en cada sector:
+
+- **Candidatos:** las especificaciones competitivas de la entrega 4, validadas como candidatas.
+- **Todos:** todas las especificaciones de las entregas 4 y 5, sin ninguna selección previa, como control de sesgo de selección.
+
+Métodos de combinación. En el origen $t$ sólo se usan errores de pronósticos cuyo mes objetivo ya se observó (fechas ≤ $t$):
+
+| Método | Regla |
+|---|---|
+| Promedio simple | Media de los pronósticos |
+| Mediana | Mediana de los pronósticos |
+| Inverso del ECM reciente | Pesos proporcionales a 1/ECM de los últimos `r VENTANA_COMBINACION` meses |
+| *Stacking* | Pesos no negativos que suman 1, estimados por mínimos cuadrados no negativos con todos los pronósticos pasados ya observados (validación temporal: los pesos de cada mes sólo usan meses anteriores; exige al menos 24) |
+| Mejor modelo reciente | El modelo de menor ECM en los últimos `r VENTANA_COMBINACION` meses (selección dinámica) |
+
+Mientras haya menos de `r MIN_ERRORES_COMBINACION` errores observados, que ocurre en el primer año de la evaluación (2012), las combinaciones ponderadas usan el promedio simple.
+
+**Advertencia:** el grupo de candidatos se definió con los resultados de la entrega 4 en todo el periodo de evaluación. Las combinaciones de ese grupo pueden ser algo optimistas; el grupo "Todos" no tiene esa selección.
+</div>
+
+```{r combinaciones}
+pronosticos_todos <- bind_rows(
+  select(pronosticos_modelos, hoja, fecha, especificacion, pronostico),
+  select(pronosticos_avanzados, hoja, fecha, especificacion, pronostico)) %>%
+  filter(especificacion != "auto.arima")
+grupos_combinacion <- bind_rows(
+  transmute(competitivas, hoja, grupo = "Candidatos (entrega 4)", especificacion),
+  pronosticos_todos %>% distinct(hoja, especificacion) %>% mutate(grupo = "Todos los modelos"))
+
+combinar_grupo <- function(h, grupo_nombre) {
+  especs <- grupos_combinacion$especificacion[grupos_combinacion$hoja == h & grupos_combinacion$grupo == grupo_nombre]
+  P <- pronosticos_todos %>% filter(hoja == h, especificacion %in% especs) %>%
+    pivot_wider(names_from = especificacion, values_from = pronostico) %>% arrange(fecha)
+  M <- as.matrix(P[, -c(1, 2)]); fechas <- P$fecha
+  y <- panel_objetivo$g[panel_objetivo$hoja == h][match(fechas, panel_objetivo$fecha[panel_objetivo$hoja == h])]
+  stopifnot(!anyNA(M), !anyNA(y))
+  E2 <- (y - M)^2
+  map_dfr(seq_along(fechas), function(i) {
+    t0 <- fechas[i] %m-% months(HORIZONTE)
+    pasado <- which(fechas <= t0)
+    reciente <- tail(pasado, VENTANA_COMBINACION)
+    hay_historia <- length(pasado) >= MIN_ERRORES_COMBINACION
+    m_simple <- mean(M[i, ])
+    w_inv <- if (hay_historia) { w <- 1 / colMeans(E2[reciente, , drop = FALSE]); w / sum(w) } else rep(1 / ncol(M), ncol(M))
+    w_stack <- if (length(pasado) >= 24) {   # el stacking exige al menos 24 errores observados
+      w <- nnls::nnls(M[pasado, , drop = FALSE], y[pasado])$x; if (sum(w) > 0) w / sum(w) else rep(1 / ncol(M), ncol(M))
+    } else rep(1 / ncol(M), ncol(M))
+    mejor <- if (hay_historia) which.min(colMeans(E2[reciente, , drop = FALSE])) else NA
+    tibble(hoja = h, fecha = fechas[i], grupo = grupo_nombre, modelos = ncol(M),
+           `Promedio simple` = m_simple, Mediana = median(M[i, ]),
+           `Inverso del ECM reciente` = sum(w_inv * M[i, ]), Stacking = sum(w_stack * M[i, ]),
+           `Mejor modelo reciente` = if (is.na(mejor)) m_simple else M[i, mejor],
+           modelo_elegido = if (is.na(mejor)) "Promedio simple" else colnames(M)[mejor],
+           peso_maximo_stacking = max(w_stack))
+  })
+}
+combinaciones <- map_dfr(HOJAS_SECTOR, function(h) map_dfr(unique(grupos_combinacion$grupo), ~ combinar_grupo(h, .x)))
+
+pronosticos_combinaciones <- combinaciones %>%
+  pivot_longer(c(`Promedio simple`, Mediana, `Inverso del ECM reciente`, Stacking, `Mejor modelo reciente`),
+               names_to = "metodo", values_to = "pronostico") %>%
+  mutate(especificacion = paste0("Combinación: ", metodo, " · ", grupo)) %>%
+  left_join(base_bench, by = c("hoja", "fecha")) %>%
+  left_join(select(panel_objetivo, hoja, fecha, g), by = c("hoja", "fecha")) %>%
+  left_join(transmute(panel_objetivo, hoja, fecha = fecha %m+% months(1), g_previo = g), by = c("hoja", "fecha"))
+
+grupos_combinacion %>% count(hoja, grupo, name = "modelos") %>% arrange(match(hoja, HOJAS_SECTOR)) %>%
+  tabla("Número de modelos en cada grupo de combinación")
+metricas_combinaciones <- evaluar_especificaciones(pronosticos_combinaciones)
+resumen_combinaciones  <- resumir_especificaciones(metricas_combinaciones)
+resumen_combinaciones %>%
+  select(hoja, especificacion, `RMSE_rel | Principal sin COVID`, `p_valor | Principal sin COVID`, `RMSE_rel | Reciente`,
+         `p_valor | Reciente`, `RMSE_rel | Principal`, `rel 2012-2019`, `rel 2020-2021`, `rel 2022-2026`, competitivo) %>%
+  tabla("Combinaciones: RMSE relativo a auto.arima por ventana y subperiodo (p de Diebold-Mariano)", altura = "520px", digitos = 3)
+```
+
+## Comparación final: modelos individuales, avanzados y combinaciones
+
+<div class="verificar">
+**Qué hace:** reúne en una sola tabla por sector todas las alternativas (modelos de la entrega 4, modelos avanzados y combinaciones) y las ordena con el criterio validado. Primero va el menor RMSE relativo en la peor de las dos ventanas de referencia (sin COVID y reciente). Se marca como **estable** la alternativa que mejora a `auto.arima` tanto en 2012–2019 como en 2022–2026. **Qué verificar:** si la mejor alternativa es estable y si una combinación supera al mejor modelo individual.
+</div>
+
+```{r comparacion-final}
+resumen_final <- bind_rows(
+  mutate(select(resumen_modelos, -any_of(c("modelo", "ventana_estimacion", "significativo"))),
+         tipo = "Modelo econométrico (entrega 4)",
+         estable = `rel 2012-2019` < 1 & `rel 2022-2026` < 1),
+  mutate(resumen_avanzados, tipo = "Modelo avanzado (entrega 5)"),
+  mutate(resumen_combinaciones, tipo = if_else(str_detect(especificacion, "Candidatos"), "Combinación de candidatos",
+                                               "Combinación de todos los modelos"))) %>%
+  group_by(hoja) %>%
+  arrange(desc(competitivo & estable), peor_ventana_referencia, .by_group = TRUE) %>%
+  mutate(rango = row_number()) %>% ungroup() %>%
+  arrange(match(hoja, HOJAS_SECTOR), rango)
+
+mostrar_final <- function(h, n = 15) {
+  resumen_final %>% filter(hoja == h) %>% slice_head(n = n) %>%
+    select(rango, especificacion, tipo, `RMSE_rel | Principal sin COVID`, `p_valor | Principal sin COVID`,
+           `RMSE_rel | Reciente`, `p_valor | Reciente`, `RMSE_rel | Principal`, `rel 2012-2019`, `rel 2022-2026`,
+           competitivo, estable) %>%
+    tabla(paste0("Las ", n, " mejores alternativas — ", NOMBRES_SECTOR[h],
+                 " (orden: competitivas y estables primero; luego por la peor ventana de referencia)"), digitos = 3)
+}
+mostrar_final("MANUF"); mostrar_final("CONST"); mostrar_final("ELEC"); mostrar_final("MIN")
+
+mejor_individual <- resumen_final %>% filter(!str_detect(tipo, "Combinación")) %>% group_by(hoja) %>%
+  slice_min(peor_ventana_referencia, n = 1, with_ties = FALSE) %>% ungroup() %>%
+  select(hoja, mejor_individual = especificacion, peor_individual = peor_ventana_referencia)
+mejor_combinacion <- resumen_final %>% filter(str_detect(tipo, "Combinación")) %>% group_by(hoja) %>%
+  slice_min(peor_ventana_referencia, n = 1, with_ties = FALSE) %>% ungroup() %>%
+  select(hoja, mejor_combinacion = especificacion, peor_combinacion = peor_ventana_referencia)
+combinacion_vs_individual <- left_join(mejor_individual, mejor_combinacion, by = "hoja") %>%
+  mutate(gana = if_else(peor_combinacion < peor_individual, "Combinación", "Modelo individual"))
+tabla(combinacion_vs_individual, "¿Supera la mejor combinación al mejor modelo individual? (RMSE relativo en la peor ventana de referencia)", digitos = 3)
+```
+
+```{r grafica-final, fig.height = 7}
+resumen_final %>% group_by(hoja) %>% slice_head(n = 8) %>% ungroup() %>%
+  select(hoja, especificacion, tipo, `Principal sin COVID` = `RMSE_rel | Principal sin COVID`, Reciente = `RMSE_rel | Reciente`) %>%
+  pivot_longer(c(`Principal sin COVID`, Reciente), names_to = "ventana", values_to = "rel") %>%
+  mutate(etiqueta = str_trunc(especificacion, 55)) %>%
+  ggplot(aes(rel, reorder(etiqueta, -rel), color = ventana, shape = tipo)) +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  geom_point(size = 2.3) +
+  facet_wrap(~ facet_hoja(hoja), scales = "free_y", ncol = 2) +
+  scale_color_manual(values = c("Principal sin COVID" = "#2563A8", Reciente = "#C0392B")) +
+  labs(title = "Las ocho mejores alternativas por sector: RMSE relativo a auto.arima",
+       x = "RMSE / RMSE de auto.arima", y = NULL, color = NULL, shape = NULL) +
+  theme(axis.text.y = element_text(size = 6.5), legend.box = "vertical")
+```
+
+<div class="interpretacion" id="interpretacion-combinaciones">
+INTERPRETACION_COMBINACIONES
+</div>
+
+## Estrategia propuesta por sector para la entrega final
+
+```{r estrategia-final}
+estrategia_final <- resumen_final %>% filter(rango == 1) %>%
+  select(hoja, especificacion, tipo, `RMSE_rel | Principal sin COVID`, `RMSE_rel | Reciente`, `RMSE_rel | Principal`,
+         `rel 2012-2019`, `rel 2020-2021`, `rel 2022-2026`, competitivo, estable) %>%
+  left_join(combinacion_vs_individual %>% select(hoja, mejor_individual, peor_individual), by = "hoja")
+tabla(estrategia_final, "Alternativa mejor clasificada en cada sector (propuesta para la entrega 6)", digitos = 3)
+```
+
+ESTRATEGIA_FINAL_TEXTO
+
+
 # Archivos de resultados {-}
 
 <div class="verificar">
@@ -4080,6 +4514,29 @@ saveRDS(list(pronosticos_modelos = pronosticos_modelos, metricas_modelos = metri
 stopifnot(all(file.exists(c(archivos_entrega_4, file.path(DIR_RESULTADOS_4, "modelos.rds")))))
 ```
 
+```{r guardar-entrega-5}
+guardar_csv_5 <- function(df, nombre) {
+  ruta <- file.path(DIR_RESULTADOS_5, paste0(nombre, ".csv"))
+  utils::write.csv(df, ruta, row.names = FALSE, fileEncoding = "UTF-8")
+  ruta
+}
+archivos_entrega_5 <- c(
+  guardar_csv_5(pronosticos_avanzados, "pronosticos_avanzados"),
+  guardar_csv_5(metricas_avanzados, "metricas_avanzados"),
+  guardar_csv_5(resumen_ajustes_ml, "ml_hiperparametros"),
+  guardar_csv_5(importancia_ml, "ml_importancia"),
+  guardar_csv_5(pronosticos_combinaciones, "pronosticos_combinaciones"),
+  guardar_csv_5(metricas_combinaciones, "metricas_combinaciones"),
+  guardar_csv_5(resumen_final, "comparacion_final"),
+  guardar_csv_5(estrategia_final, "estrategia_propuesta")
+)
+saveRDS(list(pronosticos_avanzados = pronosticos_avanzados, pronosticos_combinaciones = pronosticos_combinaciones,
+             resumen_final = resumen_final, estrategia_final = estrategia_final, ajustes_ml = resumen_ajustes_ml,
+             archivo = ARCHIVO_EXCEL, md5 = unname(tools::md5sum(ARCHIVO_EXCEL)), fecha_ejecucion = Sys.time()),
+        file.path(DIR_RESULTADOS_5, "avanzados.rds"))
+stopifnot(all(file.exists(c(archivos_entrega_5, file.path(DIR_RESULTADOS_5, "avanzados.rds")))))
+```
+
 ```{r libro-resultados}
 hojas_resultados <- list(
   "LEEME" = NULL,
@@ -4123,7 +4580,15 @@ hojas_resultados <- list(
   "Modelos_competitivos"  = competitivas,
   "Expansiva_vs_movil"    = expansiva_movil,
   "Seleccion_LASSO"       = frecuencia_lasso,
-  "Modelos_pronosticos"   = select(pronosticos_modelos, -any_of("seleccionadas"))
+  "Modelos_pronosticos"   = select(pronosticos_modelos, -any_of("seleccionadas")),
+  "Avanzados_resumen"     = resumen_avanzados,
+  "ML_hiperparametros"    = resumen_ajustes_ml,
+  "ML_importancia"        = importancia_ml,
+  "Combinaciones_resumen" = resumen_combinaciones,
+  "Comparacion_final"     = resumen_final,
+  "Estrategia_propuesta"  = estrategia_final,
+  "Avanzados_pronost"     = pronosticos_avanzados,
+  "Combinaciones_pronost" = select(pronosticos_combinaciones, hoja, fecha, especificacion, grupo, metodo, pronostico, g, pron_bench)
 )
 descripcion_hojas <- c(
   LEEME = "Esta hoja: contenido del libro",
@@ -4165,7 +4630,15 @@ descripcion_hojas <- c(
   Modelos_competitivos = "Especificaciones competitivas por sector",
   Expansiva_vs_movil = "Comparación de ventanas de estimación expansiva y móvil",
   Seleccion_LASSO = "Frecuencia con que el LASSO selecciona cada variable",
-  Modelos_pronosticos = "Pronósticos históricos de todos los modelos de la entrega 4")
+  Modelos_pronosticos = "Pronósticos históricos de todos los modelos de la entrega 4",
+  Avanzados_resumen = "Machine learning y parámetros variables: RMSE relativo por ventana y subperiodo (entrega 5)",
+  ML_hiperparametros = "Configuraciones de hiperparámetros elegidas en cada fecha de ajuste",
+  ML_importancia = "Importancia de las variables en Random Forest y gradient boosting",
+  Combinaciones_resumen = "Combinaciones de pronósticos: RMSE relativo por ventana y subperiodo",
+  Comparacion_final = "Todas las alternativas por sector, ordenadas con el criterio validado",
+  Estrategia_propuesta = "Alternativa mejor clasificada en cada sector",
+  Avanzados_pronost = "Pronósticos históricos de los modelos avanzados",
+  Combinaciones_pronost = "Pronósticos históricos de las combinaciones")
 hojas_resultados$LEEME <- tibble(
   hoja = names(descripcion_hojas), contenido = unname(descripcion_hojas),
   filas = c(NA, map_int(hojas_resultados[-1], nrow)))
