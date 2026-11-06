@@ -4261,6 +4261,14 @@ resumen_avanzados %>%
   select(hoja, especificacion, `RMSE_rel | Principal sin COVID`, `p_valor | Principal sin COVID`, `RMSE_rel | Reciente`,
          `p_valor | Reciente`, `RMSE_rel | Principal`, `rel 2012-2019`, `rel 2020-2021`, `rel 2022-2026`, competitivo) %>%
   tabla("Modelos avanzados: RMSE relativo a auto.arima por ventana y subperiodo (p de Diebold-Mariano)", altura = "460px", digitos = 3)
+
+# Cifras citadas en las interpretaciones (calculadas, no escritas a mano).
+r5 <- function(h, e, col = "RMSE_rel | Principal sin COVID", tabla_r = NULL) {
+  tb <- if (is.null(tabla_r)) bind_rows(resumen_modelos, resumen_avanzados, if (exists("resumen_combinaciones")) resumen_combinaciones) else tabla_r
+  sprintf("%.2f", tb[[col]][tb$hoja == h & tb$especificacion == e][1])
+}
+par5 <- function(h, e) paste0(r5(h, e), " / ", r5(h, e, "RMSE_rel | Reciente"))
+pct_q_max <- function(h) round(100 * mean(pron_tvp$hiperparametros[pron_tvp$hoja == h] == paste0("q=", max(REJILLA_TVP))))
 ```
 
 ```{r importancia-ml, fig.height = 7}
@@ -4278,7 +4286,23 @@ importancia_ml %>% filter(ventana_estimacion == "Expansiva", metodo == "Random F
 ```
 
 <div class="interpretacion" id="interpretacion-ml">
-INTERPRETACION_ML
+**Resultados por método** (RMSE relativo a `auto.arima`, sin COVID / reciente):
+
+- **Manufacturas:**
+  - Random Forest (`r par5("MANUF", "Random Forest (expansiva)")`) y SVR (`r par5("MANUF", "SVR (expansiva)")`) son **los mejores modelos individuales** del sector. Superan con claridad al mejor modelo econométrico, factores + ARIMA (`r par5("MANUF", "Factores + ARIMA (expansiva)")`).
+  - El SVR empeora en la ventana con COVID (`r r5("MANUF", "SVR (expansiva)", "RMSE_rel | Principal")`), mientras el Random Forest se mantiene por debajo de 1 (`r r5("MANUF", "Random Forest (expansiva)", "RMSE_rel | Principal")`).
+  - Según la importancia por permutación, el Random Forest se apoya en la producción de vehículos, la producción de EE.UU. y su interacción con el tipo de cambio, y el empleo IMSS. La producción de EE.UU. no aportaba en los modelos lineales; esto sugiere una relación no lineal o dependiente del estado.
+- **Construcción:**
+  - El Random Forest (`r par5("CONST", "Random Forest (expansiva)")`) empata con el mejor modelo econométrico, ADL con factores (`r par5("CONST", "ADL con factores (expansiva)")`). Pero no supera a `auto.arima` en la ventana con COVID (`r r5("CONST", "Random Forest (expansiva)", "RMSE_rel | Principal")`).
+  - Sus variables principales son los rezagos de $g$, el empleo IMSS y la inversión en comunicaciones y transportes.
+- **Electricidad:**
+  - Ningún método de *machine learning* es competitivo (entre `r r5("ELEC", "Gradient boosting (móvil)")` y `r r5("ELEC", "SVR (expansiva)")` sin COVID).
+  - El Random Forest usa casi sólo los rezagos de $g$: con relaciones cambiantes, la flexibilidad no ayuda.
+- **Minería:**
+  - Los tres métodos mejoran a `auto.arima`; el mejor es Random Forest (`r par5("MIN", "Random Forest (expansiva)")`).
+  - Ninguno supera a Elastic Net (`r par5("MIN", "Elastic Net (expansiva)")`). La relación con el petróleo, que concentra el 63% de la importancia del Random Forest, es esencialmente lineal.
+
+**Parámetros variables (Kalman).** No es competitivo en ningún sector, incluido electricidad (`r par5("ELEC", "Parámetros variables (Kalman)")`). La validación elige con frecuencia la mayor variabilidad de los coeficientes ($q$ = `r max(REJILLA_TVP)` en el `r pct_q_max("ELEC")`% de los orígenes de electricidad y el `r pct_q_max("MANUF")`% de manufacturas). Con eso, los coeficientes se adaptan demasiado al ruido reciente. En electricidad, la ventana móvil del ADL es una forma más eficaz de permitir cambios de relación.
 </div>
 
 # Ensemble y combinación de pronósticos
@@ -4412,11 +4436,23 @@ resumen_final %>% group_by(hoja) %>% slice_head(n = 8) %>% ungroup() %>%
   scale_color_manual(values = c("Principal sin COVID" = "#2563A8", Reciente = "#C0392B")) +
   labs(title = "Las ocho mejores alternativas por sector: RMSE relativo a auto.arima",
        x = "RMSE / RMSE de auto.arima", y = NULL, color = NULL, shape = NULL) +
+  guides(shape = guide_legend(nrow = 2)) +
   theme(axis.text.y = element_text(size = 6.5), legend.box = "vertical")
 ```
 
 <div class="interpretacion" id="interpretacion-combinaciones">
-INTERPRETACION_COMBINACIONES
+**¿Mejora el ensemble?** Depende del sector (RMSE relativo en la peor de las dos ventanas de referencia):
+
+| Sector | Mejor modelo individual | Mejor combinación | Lectura |
+|---|---|---|---|
+| Manufacturas | `r combinacion_vs_individual$mejor_individual[combinacion_vs_individual$hoja == "MANUF"]` (`r sprintf("%.3f", combinacion_vs_individual$peor_individual[combinacion_vs_individual$hoja == "MANUF"])`) | `r combinacion_vs_individual$mejor_combinacion[combinacion_vs_individual$hoja == "MANUF"]` (`r sprintf("%.3f", combinacion_vs_individual$peor_combinacion[combinacion_vs_individual$hoja == "MANUF"])`) | La combinación mejora con claridad y es estable en los subperiodos |
+| Construcción | `r combinacion_vs_individual$mejor_individual[combinacion_vs_individual$hoja == "CONST"]` (`r sprintf("%.3f", combinacion_vs_individual$peor_individual[combinacion_vs_individual$hoja == "CONST"])`) | `r combinacion_vs_individual$mejor_combinacion[combinacion_vs_individual$hoja == "CONST"]` (`r sprintf("%.3f", combinacion_vs_individual$peor_combinacion[combinacion_vs_individual$hoja == "CONST"])`) | Empate; la combinación además mejora con el COVID, el Random Forest no |
+| Electricidad | `r combinacion_vs_individual$mejor_individual[combinacion_vs_individual$hoja == "ELEC"]` (`r sprintf("%.3f", combinacion_vs_individual$peor_individual[combinacion_vs_individual$hoja == "ELEC"])`) | `r combinacion_vs_individual$mejor_combinacion[combinacion_vs_individual$hoja == "ELEC"]` (`r sprintf("%.3f", combinacion_vs_individual$peor_combinacion[combinacion_vs_individual$hoja == "ELEC"])`) | Empate |
+| Minería | `r combinacion_vs_individual$mejor_individual[combinacion_vs_individual$hoja == "MIN"]` (`r sprintf("%.3f", combinacion_vs_individual$peor_individual[combinacion_vs_individual$hoja == "MIN"])`) | `r combinacion_vs_individual$mejor_combinacion[combinacion_vs_individual$hoja == "MIN"]` (`r sprintf("%.3f", combinacion_vs_individual$peor_combinacion[combinacion_vs_individual$hoja == "MIN"])`) | Diferencia menor al 1% |
+
+Cuando la ganancia es pequeña, la combinación tiene igualmente una ventaja metodológica. El "mejor modelo individual" de cada sector se eligió *ex post* entre unas 20 especificaciones, así que su desempeño está sobreestimado. Las combinaciones del grupo "Todos los modelos" no dependen de ninguna selección previa. Que igualen o superen al mejor individual es, por tanto, evidencia más confiable.
+
+Entre los métodos de combinación, la **mediana** y el **promedio simple** son tan buenos o mejores que los ponderados (inverso del ECM, *stacking*). Es el resultado habitual en la literatura de combinación de pronósticos: estimar pesos agrega ruido. La "selección del mejor modelo reciente" es, en general, la combinación menos estable.
 </div>
 
 ## Estrategia propuesta por sector para la entrega final
@@ -4429,13 +4465,33 @@ estrategia_final <- resumen_final %>% filter(rango == 1) %>%
 tabla(estrategia_final, "Alternativa mejor clasificada en cada sector (propuesta para la entrega 6)", digitos = 3)
 ```
 
-ESTRATEGIA_FINAL_TEXTO
+<div class="interpretacion">
+**Estrategia propuesta para la entrega final** (criterio validado: menor RMSE relativo en la peor de las dos ventanas de referencia, con preferencia por las alternativas competitivas y estables):
+
+| Sector | Estrategia | Sin COVID / reciente | Con COVID | Subperiodos 2012–2019 / 2022–2026 |
+|---|---|---|---|---|
+| Manufacturas | `r estrategia_final$especificacion[estrategia_final$hoja == "MANUF"]` | `r sprintf("%.2f / %.2f", estrategia_final[["RMSE_rel | Principal sin COVID"]][estrategia_final$hoja == "MANUF"], estrategia_final[["RMSE_rel | Reciente"]][estrategia_final$hoja == "MANUF"])` | `r sprintf("%.2f", estrategia_final[["RMSE_rel | Principal"]][estrategia_final$hoja == "MANUF"])` | `r sprintf("%.2f / %.2f", estrategia_final[["rel 2012-2019"]][estrategia_final$hoja == "MANUF"], estrategia_final[["rel 2022-2026"]][estrategia_final$hoja == "MANUF"])` |
+| Construcción | `r estrategia_final$especificacion[estrategia_final$hoja == "CONST"]` | `r sprintf("%.2f / %.2f", estrategia_final[["RMSE_rel | Principal sin COVID"]][estrategia_final$hoja == "CONST"], estrategia_final[["RMSE_rel | Reciente"]][estrategia_final$hoja == "CONST"])` | `r sprintf("%.2f", estrategia_final[["RMSE_rel | Principal"]][estrategia_final$hoja == "CONST"])` | `r sprintf("%.2f / %.2f", estrategia_final[["rel 2012-2019"]][estrategia_final$hoja == "CONST"], estrategia_final[["rel 2022-2026"]][estrategia_final$hoja == "CONST"])` |
+| Electricidad | `r estrategia_final$especificacion[estrategia_final$hoja == "ELEC"]` | `r sprintf("%.2f / %.2f", estrategia_final[["RMSE_rel | Principal sin COVID"]][estrategia_final$hoja == "ELEC"], estrategia_final[["RMSE_rel | Reciente"]][estrategia_final$hoja == "ELEC"])` | `r sprintf("%.2f", estrategia_final[["RMSE_rel | Principal"]][estrategia_final$hoja == "ELEC"])` | `r sprintf("%.2f / %.2f", estrategia_final[["rel 2012-2019"]][estrategia_final$hoja == "ELEC"], estrategia_final[["rel 2022-2026"]][estrategia_final$hoja == "ELEC"])` |
+| Minería | `r estrategia_final$especificacion[estrategia_final$hoja == "MIN"]` | `r sprintf("%.2f / %.2f", estrategia_final[["RMSE_rel | Principal sin COVID"]][estrategia_final$hoja == "MIN"], estrategia_final[["RMSE_rel | Reciente"]][estrategia_final$hoja == "MIN"])` | `r sprintf("%.2f", estrategia_final[["RMSE_rel | Principal"]][estrategia_final$hoja == "MIN"])` | `r sprintf("%.2f / %.2f", estrategia_final[["rel 2012-2019"]][estrategia_final$hoja == "MIN"], estrategia_final[["rel 2022-2026"]][estrategia_final$hoja == "MIN"])` |
+
+En los cuatro sectores la estrategia propuesta es una **combinación de pronósticos**. Mejora a `auto.arima` en las dos ventanas de referencia, con la ventana del COVID y en los dos subperiodos sin COVID.
+
+Dos casos son prácticamente empates:
+
+- **Electricidad:** la combinación empata con el ADL con factores con ventana móvil.
+- **Minería:** el *stacking* empata con el promedio simple de todos los modelos y con Elastic Net (diferencias menores al 1%).
+
+En ambos se prefiere la combinación por la razón metodológica descrita arriba. En minería, el promedio simple es una alternativa equivalente y más sencilla.
+
+En construcción, la estrategia mejor clasificada usa el grupo de candidatos de la entrega 4, que sí tiene selección *ex post*. La mediana de todos los modelos, sin esa selección, queda en `r par5("CONST", "Combinación: Mediana · Todos los modelos")`: es mejor sin COVID, pero peor en la ventana reciente.
+</div>
 
 
 # Archivos de resultados {-}
 
 <div class="verificar">
-**Qué hace:** guarda los resultados de la entrega 2 (CSV y RDS) y escribe el libro de Excel con todos los resultados de las entregas 1 y 2. **Qué verificar:** que los archivos existan y que el libro tenga una hoja por tabla.
+**Qué hace:** guarda los resultados de las entregas 2 a 5 (CSV y RDS en `resultados/02_variables` a `resultados/05_avanzados`) y escribe el libro de Excel con todos los resultados de las entregas 1 a 5. **Qué verificar:** que los archivos existan y que el libro tenga una hoja por tabla.
 </div>
 
 ```{r guardar-entrega-2}
@@ -4736,6 +4792,26 @@ tabla(verificacion_libro, paste("Hojas del libro", ARCHIVO_RESULTADOS_XLSX))
    - un modelo de parámetros variables en el tiempo en espacio de estados, sobre todo para electricidad;
    - combinaciones de pronósticos con pesos calculados sólo con errores pasados (promedio simple, inverso del error cuadrático reciente y *stacking* temporal).
 3. **Criterio de selección final:** el mejor desempeño en la peor de las dos ventanas de referencia (sin COVID y reciente), con preferencia por los modelos estables en los subperiodos.
+
+# Resumen de la entrega 5 y puntos para validar {-}
+
+**Qué contiene esta entrega:**
+
+1. **Decisiones de la entrega 4 aplicadas:** candidatos por sector, alcance de la entrega 5 y criterio de selección.
+2. ***Machine learning:*** Random Forest, *gradient boosting* y SVR, con la misma información, el recorte y la validación hacia adelante. Los hiperparámetros se reajustan cada 12 meses. Son los mejores modelos individuales de manufacturas y compiten en construcción y minería; en electricidad no son competitivos.
+3. **Parámetros variables (filtro de Kalman):** no es competitivo en ningún sector.
+4. **Combinaciones:** cinco métodos, aplicados al grupo de candidatos y a todos los modelos, con pesos calculados sólo con errores pasados. En manufacturas la combinación mejora claramente al mejor modelo individual. En los otros sectores lo iguala, sin depender de una selección *ex post*.
+5. **Estrategia propuesta por sector** (tabla anterior): en los cuatro sectores, una combinación de pronósticos. El RMSE relativo a `auto.arima` en la peor ventana de referencia es de `r sprintf("%.2f", min(pmax(estrategia_final[["RMSE_rel | Principal sin COVID"]], estrategia_final[["RMSE_rel | Reciente"]])))` a `r sprintf("%.2f", max(pmax(estrategia_final[["RMSE_rel | Principal sin COVID"]], estrategia_final[["RMSE_rel | Reciente"]])))`.
+
+**Puntos para validar antes de la entrega 6 (final):**
+
+1. **Estrategia final por sector:**
+   - mediana de todos los modelos en manufacturas;
+   - mediana de los candidatos en construcción;
+   - promedio simple de todos los modelos en electricidad;
+   - *stacking* de todos los modelos en minería (o, si prefiere la alternativa equivalente y más sencilla, promedio simple).
+2. **Pronóstico final de septiembre de 2026:** reestimar con toda la información disponible hasta agosto de 2026 todos los modelos que entran en cada combinación y aplicar la regla de combinación con los errores históricos disponibles. Se reportará la tabla del planteamiento: último dato, pronóstico, modelo, benchmark y mejora fuera de muestra.
+3. **Incertidumbre:** acompañar cada pronóstico con un intervalo empírico basado en los errores fuera de muestra de la estrategia (por ejemplo, percentiles de los errores 2022–2026).
 
 # Información de la sesión {-}
 
