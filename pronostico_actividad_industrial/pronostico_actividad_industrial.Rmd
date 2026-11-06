@@ -1,6 +1,6 @@
 ---
 title: "Pronóstico mensual de la actividad industrial de México"
-subtitle: "Entregas 1 y 2 · Diagnóstico de datos y construcción de variables (sin estimación de modelos de pronóstico)"
+subtitle: "Entregas 1 a 3 · Diagnóstico, construcción de variables y estrategia de información"
 date: "`r format(Sys.Date(), '%Y-%m-%d')`"
 output:
   html_document:
@@ -55,13 +55,13 @@ $$
 
 Todos los modelos pronosticarán directamente $g_{t+1}$. No se pronosticarán niveles ni se usarán modelos estacionales, desestacionalización ni dummies mensuales. El criterio de selección será el desempeño **fuera de muestra**, usando en cada fecha sólo la información que habría estado disponible.
 
-**Este documento contiene las entregas 1 y 2.** La entrega 1 (configuración, lectura y diagnóstico) ya fue validada; sus decisiones se registran abajo y se aplicaron en un archivo corregido. La entrega 2 (sección de construcción de variables) define las variaciones anuales, las transformaciones de cada predictor y la regla de disponibilidad de la información. Además incluye la **prueba solicitada con los datos históricos de la EMAER** (sección de disponibilidad histórica). Esa prueba es el único lugar donde se estiman regresiones: son modelos sencillos y preespecificados, usados como herramienta de evaluación y no como modelos finales. En la sección 2 las transformaciones "provisionales" sólo sirven para describir los datos; las definitivas son las de la sección 3.
+**Este documento contiene las entregas 1 a 3.** Las entregas 1 (diagnóstico) y 2 (construcción de variables) ya fueron validadas, y sus decisiones se registran abajo. La entrega 3 (sección de disponibilidad histórica) evalúa qué información conviene usar en cada sector: el benchmark de referencia (`auto.arima`), la contribución marginal de cada variable, la comparación de muestras y de paneles desbalanceados, y la reconstrucción de historias cortas. Los modelos de esa sección son instrumentos para decidir la estrategia de información, no los modelos finales, que se desarrollan en las entregas 4 y 5. En la sección 2 las transformaciones "provisionales" sólo sirven para describir los datos; las definitivas son las de la sección 3.
 
 | Entrega | Contenido | Estado |
 |---|---|---|
 | 1 | Configuración, lectura y diagnóstico de datos | Validada |
-| 2 | Construcción de variaciones anuales y transformaciones; prueba de la EMAER histórica | **Este documento (para revisión)** |
-| 3 | Disponibilidad histórica, contribución marginal y estrategia de información | Pendiente |
+| 2 | Construcción de variaciones anuales y transformaciones; prueba de la EMAER histórica | Validada |
+| 3 | Disponibilidad histórica, contribución marginal y estrategia de información | **Este documento (para revisión)** |
 | 4 | Benchmarks y modelos econométricos | Pendiente |
 | 5 | Machine learning, factores y combinaciones | Pendiente |
 | 6 | Selección y pronósticos finales | Pendiente |
@@ -89,7 +89,8 @@ paquetes_requeridos <- c(
   "zoo",          # estadísticos móviles (ventanas hacia atrás)
   "tseries",      # pruebas ADF y KPSS descriptivas
   "strucchange",  # quiebres estructurales (Bai-Perron), sólo descriptivo
-  "writexl"       # libro de resultados en Excel
+  "writexl",      # libro de resultados en Excel
+  "forecast"      # auto.arima (benchmark) y ARIMA con regresores
 )
 
 INSTALAR_FALTANTES <- FALSE   # cambiar a TRUE para instalar desde CRAN
@@ -170,6 +171,22 @@ DIR_RESULTADOS   <- file.path("resultados", "01_diagnostico")
 DIR_RESULTADOS_2 <- file.path("resultados", "02_variables")
 ARCHIVO_RESULTADOS_XLSX <- file.path("resultados", "resultados_pronostico_imai.xlsx")
 for (d in c(DIR_RESULTADOS, DIR_RESULTADOS_2)) dir.create(d, recursive = TRUE, showWarnings = FALSE)
+
+# --- Variables excluidas por decisión del usuario (entrega 2) ------------------
+VARIABLES_EXCLUIDAS <- c("ENOE")   # ELEC y MIN: hueco de 2020 y cambio de encuesta
+
+# --- Entrega 3: evaluación de la información (sección 4) ----------------------
+DIR_RESULTADOS_3      <- file.path("resultados", "03_informacion")
+DIR_CACHE             <- file.path("resultados", "cache")
+USAR_CACHE            <- TRUE    # FALSE para recalcular todo (≈10-40 min según núcleos)
+NUCLEOS               <- if (.Platform$OS.type == "windows") 1L else max(1L, parallel::detectCores() - 1L)
+INICIO_PRONOSTICOS    <- as.Date("2009-01-01")  # primer mes pronosticado (historial para la selección en tiempo real)
+VENTANA_HISTORIAL     <- 36      # meses de errores pasados para la selección en tiempo real
+MIN_HISTORIAL         <- 24      # errores mínimos para calificar una variable
+K_FACTORES            <- 2       # factores en los modelos de factores
+MIN_HISTORIA_EXPANSIVA <- 120    # meses mínimos para que una variable entre a la estrategia expansiva
+FIN_HISTORIA_LARGA    <- as.Date("1998-07-01")  # representaciones que existen desde esta fecha o antes
+for (d in c(DIR_RESULTADOS_3, DIR_CACHE)) dir.create(d, recursive = TRUE, showWarnings = FALSE)
 
 # --- Prueba de la EMAER histórica (preespecificada, sección 4) ----------------
 INICIO_EMAER_NUEVA   <- as.Date("2018-01-01")  # inicio de la EMAER actual
@@ -502,9 +519,17 @@ decisiones <- tribble(
   8, "Probar los datos históricos de la EMAER", "Solicitud adicional",
      "Sección 4: reconstrucción y prueba fuera de muestra",
   9, "Entregar el Excel corregido, el Rmd y un Excel con los resultados", "Solicitud adicional",
-     "datos/base_imai_corregida.xlsx y resultados/resultados_pronostico_imai.xlsx"
-)
-tabla(decisiones, "Decisiones validadas al cierre de la entrega 1")
+     "datos/base_imai_corregida.xlsx y resultados/resultados_pronostico_imai.xlsx",
+  10, "Entrega 2: reglas de transformación de los predictores", "Sí",
+     "Sección 3 sin cambios",
+  11, "Entrega 2: EMAER empalmada en balances, sin indicadora, como bloque desde 2004", "Sí",
+     "Sección 4: panel de modelación; las series EMAER sin historia sólo se evalúan individualmente y días laborados se trata aparte",
+  12, "Entrega 2: ENOE", "Quitarla de todo",
+     "Excluida de todas las representaciones, paneles y modelos (ELEC y MIN); se conserva sólo en el diagnóstico del archivo",
+  13, "Entrega 2: benchmark", "auto.arima",
+     "Sección 4: auto.arima sin componentes estacionales, reestimado en cada origen, es la referencia de todas las comparaciones"
+) %>% mutate(entrega = if_else(n <= 9, 1L, 2L), .before = 1)
+tabla(decisiones, "Decisiones validadas al cierre de las entregas 1 y 2")
 ```
 
 Los valores sospechosos de `CFE4` (2006-01) y `CFE6` (2000-10) se mantienen sin cambios y quedan marcados, como se propuso en el diagnóstico.
@@ -1809,7 +1834,7 @@ problemas <- tribble(
   "Abierto: causa desconocida (decisión 7)",
   "Alta", "Heterogeneidad extrema de historias en manufacturas (1993 / 2004 / 2018)",
   "MANUF: EMOE (2004), EMAER (2018)", "Casos completos con EMAER: ~90 observaciones",
-  "Estrategia por bloques, modelos de panel desbalanceado y contribución marginal", "Entrega 3",
+  "Estrategia por bloques, modelos de panel desbalanceado y contribución marginal", "Evaluado en la sección 4 (entrega 3)",
   "Media", "EMAER: encuesta nueva desde 2018; la serie anterior está enlazada en EMAER HIST (2003–2017)",
   "MANUF: EMAER1–11, 15–17", "Posible extensión de 15 años con datos reales, con quiebre metodológico",
   "Empalmar en balances y evaluar fuera de muestra", "Evaluado en la sección 4",
@@ -1821,10 +1846,10 @@ problemas <- tribble(
   "Balances EMAER; total o componentes SHCP, no ambos", "Tratado en la sección 3 (decisión 5)",
   "Media", "Quiebres de cobertura en el empleo IMSS (LyFC 2009; subcontratación 2021)",
   "IMSS_ELEC_P, IMSS_EV, IMSS_*_E", "Saltos de nivel que contaminan 12 meses de variación anual",
-  "Evaluar totales y la estabilidad fuera de muestra", "Entrega 3",
+  "Evaluar totales y la estabilidad fuera de muestra", "Contribución marginal evaluada en la sección 4",
   "Media", "ENOE: hueco interno 2020-05/06 y cambio de encuesta",
   "ELEC/MIN: ENOE", "La diferencia anual también falta en 2021-05/06",
-  "Exclusión, modelos con faltantes o imputación sólo con información pasada", "Entrega 3",
+  "Exclusión, modelos con faltantes o imputación sólo con información pasada", "Excluida de todo (decisión 12)",
   "Media", "Ausencia de vintages (datos revisados)", "Todas", "Evaluación pseudo-fuera-de-muestra algo optimista",
   "Replicar el patrón de publicación actual", "Limitación documentada; regla de disponibilidad (decisión 3)",
   "Media", "Exportaciones 'reales' = USD × TC / INPC", "MANUF: EXPORT_AUT, EXPORT_SNAUT",
@@ -1847,7 +1872,7 @@ problemas <- tribble(
   "Evaluar con y sin el periodo COVID, y en la ventana reciente", "Aplicado en la sección 4; se mantiene en la evaluación"
 ) %>%
   mutate(id = row_number(), .before = 1)
-tabla(problemas, "Problemas identificados y estado al cierre de la entrega 2", altura = "560px")
+tabla(problemas, "Problemas identificados y estado al cierre de la entrega 3", altura = "560px")
 ```
 
 Las decisiones sobre estos problemas se validaron al cierre de la entrega 1 y se registran en la sección 1 ("Decisiones validadas y archivo corregido").
@@ -2085,7 +2110,8 @@ La variación anual mensual de la inversión pública tiene huecos en los compon
 # Variables de origen: todas las de la pestaña salvo el objetivo y las respuestas EMAER
 # individuales, que se sustituyen por sus balances.
 variables_origen <- map_dfr(HOJAS_SECTOR, function(h) {
-  base <- diccionario %>% filter(hoja == h, !tipo %in% c("objetivo", "respuestas")) %>%
+  base <- diccionario %>% filter(hoja == h, !tipo %in% c("objetivo", "respuestas"),
+                                 !variable %in% VARIABLES_EXCLUIDAS) %>%   # ENOE excluida (decisión 12)
     select(hoja, origen = variable, tipo, descripcion)
   if (h == "MANUF")
     base <- bind_rows(base, tibble(hoja = h, origen = paste0("EMAER_B_", preguntas_emaer$codigo),
@@ -2143,10 +2169,11 @@ catalogo_base %>%
 catalogo_base %>% filter(huecos > 0) %>%
   select(hoja, nombre, primera_fecha, ultima_fecha, n_obs, huecos) %>%
   tabla("Representaciones con huecos internos")
+stopifnot(!any(catalogo_base$origen %in% VARIABLES_EXCLUIDAS), all(catalogo_base$huecos == 0))
 ```
 
 <div class="interpretacion">
-Los cuatro sectores quedan con `r count(catalogo_base, hoja) %>% arrange(match(hoja, HOJAS_SECTOR)) %>% { paste0(NOMBRES_SECTOR[.$hoja], " = ", .$n, collapse = ", ") }` representaciones base. Las únicas con huecos internos son las de `ENOE`: los dos meses `ND` de 2020 generan huecos en el nivel y, en la diferencia anual, también en los mismos meses de 2021. No se rellenan; su tratamiento se decidirá en la entrega 3. Las fechas de inicio de cada representación son las de su variable de origen más 12 meses en las transformaciones anuales, lo que determina el inicio efectivo de cada bloque.
+Los cuatro sectores quedan con `r count(catalogo_base, hoja) %>% arrange(match(hoja, HOJAS_SECTOR)) %>% { paste0(NOMBRES_SECTOR[.$hoja], " = ", .$n, collapse = ", ") }` representaciones base. La `ENOE`, única variable con huecos internos, quedó excluida por decisión de la entrega 2. Por eso ninguna representación tiene huecos. Las fechas de inicio de cada representación son las de su variable de origen más 12 meses en las transformaciones anuales, lo que determina el inicio efectivo de cada bloque.
 </div>
 
 ### Verificación de que las transformaciones no usan información futura
@@ -2694,6 +2721,601 @@ La relación con $g_t$ es parecida para el balance de producción en promedio de
 - Tratar días laborados por separado, por la inestabilidad de su relación con $g_t$.
 </div>
 
+*Nota (entrega 3):* al validar esta prueba se decidió que el benchmark de referencia sea `auto.arima`. La contribución de la EMAER empalmada frente a ese benchmark se mide, junto con la de todas las demás variables, en la sección de contribución marginal. Los resultados de esta subsección se conservan tal como se validaron.
+
+## Panel de modelación tras las decisiones de la entrega 2
+
+<div class="verificar">
+**Qué hace:** aplica las decisiones validadas al cierre de la entrega 2 y define el panel con el que se evalúa la información. (i) La `ENOE` ya no aparece en ninguna representación (sección 3). (ii) En manufacturas, el uso de capacidad, días laborados y los balances de producción, ventas, inventarios y trabajadores se sustituyen por su versión **empalmada** con la encuesta previa (desde 2003). (iii) Los balances EMAER sin historia previa (inventarios respecto a ventas, renuncias y dificultades de contratación) sólo se evalúan individualmente. Lo mismo días laborados, por la inestabilidad de su relación con $g_t$. Ninguna de esas series entra a las estrategias multivariadas. **Qué verificar:** las nuevas fechas de inicio de las representaciones EMAER y la clasificación de uso de cada representación.
+</div>
+
+```{r panel-modelacion}
+# Representaciones EMAER que se recalculan con la serie empalmada (encuesta previa hasta 2017-12).
+origenes_empalmados <- c("EMAER1", "EMAER2", "EMAER_B_PROD", "EMAER_B_VENTAS", "EMAER_B_INV", "EMAER_B_TRAB")
+origen_empalmado <- tibble(fecha = emaer_empalmada$fecha,
+                           EMAER1 = emaer_empalmada$EMAER1, EMAER2 = emaer_empalmada$EMAER2,
+                           EMAER_B_PROD   = emaer_empalmada$EMAER3  - emaer_empalmada$EMAER5,
+                           EMAER_B_VENTAS = emaer_empalmada$EMAER6  - emaer_empalmada$EMAER8,
+                           EMAER_B_INV    = emaer_empalmada$EMAER9  - emaer_empalmada$EMAER11,
+                           EMAER_B_TRAB   = emaer_empalmada$EMAER15 - emaer_empalmada$EMAER17)
+stopifnot(identical(origen_empalmado$fecha, paneles_base$MANUF$fecha))
+
+paneles_modelo <- paneles_base
+for (i in which(catalogo_base$hoja == "MANUF" & catalogo_base$origen %in% origenes_empalmados))
+  paneles_modelo$MANUF[[catalogo_base$nombre[i]]] <-
+    representar(origen_empalmado[[catalogo_base$origen[i]]], catalogo_base$metodo[i])
+
+catalogo_modelo <- catalogo_base %>%
+  rowwise() %>%
+  mutate(primera_fecha = { z <- paneles_modelo[[hoja]][[nombre]]; min(paneles_modelo[[hoja]]$fecha[!is.na(z)]) },
+         n_obs = sum(!is.na(paneles_modelo[[hoja]][[nombre]]))) %>%
+  ungroup() %>%
+  mutate(fuente_historia = case_when(origen %in% origenes_empalmados ~ "EMAER empalmada con la encuesta previa",
+                                     str_detect(origen, "^EMAER_B_") ~ "Sólo EMAER (2018 en adelante)",
+                                     TRUE ~ "Pestaña sectorial"),
+         historia_larga = primera_fecha <= FIN_HISTORIA_LARGA,
+         uso = case_when(tipo == "dias" ~ "Sólo individual (tratada aparte)",
+                         fuente_historia == "Sólo EMAER (2018 en adelante)" ~ "Sólo individual (sin historia previa)",
+                         TRUE ~ "Individual y estrategias multivariadas"),
+         en_estrategias = uso == "Individual y estrategias multivariadas",
+         rezago_alineacion = HORIZONTE - desfase)   # k: la fila s usa x_{s-k}
+stopifnot(all(catalogo_modelo$rezago_alineacion %in% c(0, 1)))
+
+catalogo_modelo %>% filter(hoja == "MANUF", str_detect(origen, "^EMAER")) %>%
+  select(nombre, fuente_historia, primera_fecha, n_obs, uso) %>%
+  tabla("Representaciones EMAER en el panel de modelación de manufacturas")
+
+catalogo_modelo %>% count(hoja, historia_larga, uso) %>%
+  mutate(historia = if_else(historia_larga, paste0("Larga (desde ", format(FIN_HISTORIA_LARGA, "%Y-%m"), " o antes)"), "Media o corta")) %>%
+  select(hoja, historia, uso, representaciones = n) %>% arrange(match(hoja, HOJAS_SECTOR)) %>%
+  tabla("Representaciones del panel de modelación por longitud de historia y uso")
+```
+
+<div class="interpretacion">
+Con el empalme, los balances EMAER de producción, ventas, inventarios y trabajadores y el uso de capacidad empiezan en 2003–2004 en lugar de 2018. En manufacturas, la información de encuestas deja de ser de historia corta: el bloque EMAER empalmado tiene una historia similar a la de la EMOE. Electricidad y minería quedan con `r sum(catalogo_modelo$hoja == "ELEC")` y `r sum(catalogo_modelo$hoja == "MIN")` representaciones, todas de historia larga, una vez excluida la ENOE.
+</div>
+
+## Benchmark de referencia: `auto.arima` (decisión 13)
+
+<div class="verificar">
+**Qué hace:** en cada origen $t$ desde `r format(INICIO_PRONOSTICOS %m-% months(1), "%Y-%m")`, estima `auto.arima` sobre $g_1, \dots, g_t$ con ventana expansiva y **sin componentes estacionales** (`seasonal = FALSE`). Elige $p$, $d$ y $q$ por AICc dentro de la ventana de entrenamiento y genera $\hat g_{t+1}$. El orden se vuelve a elegir en cada origen. Se calculan también tres benchmarks secundarios: último dato observado, AR(1) directo y media histórica. Los cálculos costosos se guardan en caché (`USAR_CACHE`). **Qué verificar:** los órdenes elegidos a lo largo del tiempo y el desempeño del benchmark frente a los secundarios.
+</div>
+
+```{r funciones-cache}
+# Huella de los insumos: si cambian los datos o la especificación, la caché se recalcula.
+huella <- function(...) {
+  f <- tempfile(); writeBin(serialize(list(...), NULL, version = 3), f)
+  h <- unname(tools::md5sum(f)); unlink(f); h
+}
+con_cache <- function(nombre, insumos, calcular) {
+  ruta <- file.path(DIR_CACHE, paste0(nombre, "_", substr(insumos, 1, 10), ".rds"))
+  if (USAR_CACHE && file.exists(ruta)) {
+    cat(sprintf("[caché] %s: resultados leídos de %s\n", nombre, ruta))
+    return(readRDS(ruta))
+  }
+  t0 <- proc.time()[["elapsed"]]
+  res <- calcular()
+  saveRDS(res, ruta)
+  cat(sprintf("[cálculo] %s: %.1f minutos con %d núcleo(s); guardado en %s\n",
+              nombre, (proc.time()[["elapsed"]] - t0) / 60, NUCLEOS, ruta))
+  res
+}
+aplicar_en_paralelo <- function(x, f) {
+  res <- parallel::mclapply(x, f, mc.cores = NUCLEOS)
+  errores <- vapply(res, inherits, logical(1), "try-error")
+  if (any(errores)) stop("Fallaron ", sum(errores), " tareas en paralelo: ", as.character(res[[which(errores)[1]]]))
+  res
+}
+```
+
+```{r benchmark-autoarima}
+fechas_pronostico <- seq(INICIO_PRONOSTICOS, origen_final, by = "month")
+
+ajustar_benchmark <- function(y) {
+  tryCatch(forecast::auto.arima(ts(y), seasonal = FALSE),
+           error = function(e) forecast::Arima(ts(y), order = c(1, 0, 0), include.mean = TRUE))
+}
+pronosticar_benchmark <- function(h) {
+  p <- paneles_modelo[[h]]
+  bind_rows(aplicar_en_paralelo(fechas_pronostico, function(f) {
+    t0 <- f %m-% months(HORIZONTE)
+    y  <- p$g[p$fecha <= t0 & !is.na(p$g)]
+    fit <- ajustar_benchmark(y)
+    o  <- forecast::arimaorder(fit); cf <- names(coef(fit))
+    tibble(hoja = h, fecha = f, pronostico = as.numeric(forecast::forecast(fit, h = 1)$mean),
+           p = o[["p"]], d = o[["d"]], q = o[["q"]],
+           media = "intercept" %in% cf, deriva = "drift" %in% cf, n_entrenamiento = length(y))
+  }))
+}
+benchmark <- con_cache("benchmark_autoarima",
+                       huella(map(paneles_modelo, ~ .x[c("fecha", "g")]), fechas_pronostico, "v1"),
+                       function() map_dfr(HOJAS_SECTOR, pronosticar_benchmark))
+
+# Benchmarks secundarios (baratos; no requieren caché)
+secundarios <- map_dfr(HOJAS_SECTOR, function(h) {
+  p <- paneles_modelo[[h]] %>% select(fecha, g) %>% mutate(g_l1 = dplyr::lag(g))
+  ar1 <- pronosticar_directo(p, character(0), fechas_pronostico) %>% transmute(fecha, pronostico, modelo = "AR(1) directo")
+  naive <- p %>% filter(fecha %in% fechas_pronostico) %>% transmute(fecha, pronostico = g_l1, modelo = "Último dato observado")
+  media <- tibble(fecha = fechas_pronostico,
+                  pronostico = map_dbl(fechas_pronostico, ~ mean(p$g[p$fecha < .x], na.rm = TRUE)),
+                  modelo = "Media histórica")
+  bind_rows(ar1, naive, media) %>% mutate(hoja = h)
+})
+pronosticos_benchmarks <- bind_rows(
+  transmute(benchmark, hoja, fecha, pronostico, modelo = "auto.arima"), secundarios) %>%
+  left_join(select(panel_objetivo, hoja, fecha, g), by = c("hoja", "fecha")) %>%
+  left_join(transmute(panel_objetivo, hoja, fecha = fecha %m+% months(1), g_previo = g), by = c("hoja", "fecha"))
+stopifnot(!anyNA(benchmark$pronostico), nrow(benchmark) == length(HOJAS_SECTOR) * length(fechas_pronostico))
+```
+
+```{r funciones-evaluacion}
+# Prueba de Clark-West para modelos anidados (H1: el modelo ampliado pronostica mejor).
+prueba_cw <- function(y, f_base, f_ampliado) {
+  ok <- !is.na(y) & !is.na(f_base) & !is.na(f_ampliado)
+  y <- y[ok]; fb <- f_base[ok]; fa <- f_ampliado[ok]; n <- length(y)
+  if (n < 12) return(NA_real_)
+  ajuste <- (y - fb)^2 - ((y - fa)^2 - (fb - fa)^2)
+  if (sd(ajuste) == 0) return(NA_real_)
+  L  <- max(1, floor(n^(1/3))); dc <- ajuste - mean(ajuste)
+  gam <- vapply(0:L, function(k) sum(dc[(k + 1):n] * dc[1:(n - k)]) / n, numeric(1))
+  v  <- gam[1] + 2 * sum((1 - seq_len(L) / (L + 1)) * gam[-1])
+  1 - pnorm(mean(ajuste) / sqrt(v / n))
+}
+# Métricas de un modelo frente al benchmark auto.arima en las mismas fechas de una ventana.
+comparar_con_benchmark <- function(d, v, anidado = TRUE) {
+  d <- d %>% filter(en_ventana(fecha, v), !is.na(pronostico), !is.na(pron_bench), !is.na(g))
+  if (nrow(d) < 12) return(tibble(ventana = v, n = nrow(d)))
+  e <- d$g - d$pronostico; eb <- d$g - d$pron_bench
+  tibble(ventana = v, n = nrow(d), desde = min(d$fecha), RMSE = sqrt(mean(e^2)), MAE = mean(abs(e)),
+         sesgo = mean(-e), RMSE_bench = sqrt(mean(eb^2)), RMSE_rel = RMSE / RMSE_bench,
+         acierto_direccion = 100 * mean(sign(d$pronostico - d$g_previo) == sign(d$g - d$g_previo)),
+         p_valor = if (anidado) prueba_cw(d$g, d$pron_bench, d$pronostico) else prueba_dm(e, eb),
+         prueba = if (anidado) "Clark-West" else "Diebold-Mariano")
+}
+SUBPERIODOS_EVAL <- tribble(~subperiodo, ~inicio, ~fin,
+  "2012-2019", as.Date("2012-01-01"), as.Date("2019-12-01"),
+  "2020-2021", as.Date("2020-01-01"), as.Date("2021-12-01"),
+  "2022-2026", as.Date("2022-01-01"), origen_final)
+rmse_rel_subperiodos <- function(d) {
+  pmap_dfr(SUBPERIODOS_EVAL, function(subperiodo, inicio, fin) {
+    x <- d %>% filter(fecha >= inicio, fecha <= fin, !is.na(pronostico), !is.na(pron_bench), !is.na(g))
+    tibble(subperiodo = subperiodo,
+           RMSE_rel = if (nrow(x) >= 12) sqrt(mean((x$g - x$pronostico)^2)) / sqrt(mean((x$g - x$pron_bench)^2)) else NA_real_)
+  })
+}
+```
+
+```{r metricas-benchmarks}
+base_bench <- pronosticos_benchmarks %>% filter(modelo == "auto.arima") %>% select(hoja, fecha, pron_bench = pronostico)
+metricas_benchmarks <- pronosticos_benchmarks %>% left_join(base_bench, by = c("hoja", "fecha")) %>%
+  group_by(hoja, modelo) %>%
+  group_modify(~ map_dfr(ventanas$ventana, function(v) comparar_con_benchmark(.x, v, anidado = FALSE))) %>%
+  ungroup() %>%
+  mutate(p_valor = if_else(modelo == "auto.arima", NA_real_, p_valor),
+         modelo = factor(modelo, levels = c("auto.arima", "AR(1) directo", "Último dato observado", "Media histórica"))) %>%
+  arrange(match(hoja, HOJAS_SECTOR), ventana, modelo)
+metricas_benchmarks %>% select(hoja, ventana, modelo, n, RMSE, MAE, sesgo, RMSE_rel, acierto_direccion, p_valor) %>%
+  tabla("Benchmarks: métricas fuera de muestra (RMSE_rel y valor p de Diebold-Mariano frente a auto.arima)",
+        altura = "520px", digitos = 3)
+```
+
+```{r grafica-ordenes, fig.height = 4.5}
+benchmark %>% mutate(orden = paste0("(", p, ",", d, ",", q, ")")) %>%
+  ggplot(aes(fecha, p + q, color = factor(d))) +
+  geom_step(linewidth = 0.6) +
+  facet_wrap(~ facet_hoja(hoja), nrow = 1) +
+  scale_color_manual(values = c("0" = "#2563A8", "1" = "#C0392B"), name = "d") +
+  labs(title = "Orden elegido por auto.arima en cada origen", subtitle = "p + q (número de parámetros ARMA); color: orden de integración d",
+       x = NULL, y = "p + q")
+
+benchmark %>% count(hoja, d, name = "origenes") %>% group_by(hoja) %>% mutate(pct = 100 * origenes / sum(origenes)) %>%
+  ungroup() %>% arrange(match(hoja, HOJAS_SECTOR)) %>%
+  tabla("Orden de integración elegido por auto.arima (porcentaje de orígenes)", digitos = 1)
+```
+
+```{r grafica-benchmark, fig.height = 6}
+pronosticos_benchmarks %>% filter(modelo == "auto.arima", fecha >= INICIO_EVAL_PRINCIPAL) %>%
+  ggplot(aes(fecha)) +
+  annotate("rect", xmin = PERIODO_COVID[1], xmax = PERIODO_COVID[2], ymin = -Inf, ymax = Inf, alpha = 0.10, fill = "red") +
+  geom_line(aes(y = g), color = "grey20", linewidth = 0.5) +
+  geom_line(aes(y = pronostico, color = hoja), linewidth = 0.5) +
+  facet_wrap(~ facet_hoja(hoja), scales = "free_y", ncol = 2) +
+  scale_color_manual(values = COLORES_SECTOR, guide = "none") +
+  labs(title = "auto.arima: pronóstico a un mes (color) frente a la variación anual observada (negro)", x = NULL, y = "%")
+```
+
+<div class="interpretacion" id="interpretacion-benchmark">
+INTERPRETACION_BENCHMARK
+</div>
+
+## Contribución marginal de cada variable
+
+<div class="verificar">
+**Qué hace:** mide, para cada representación $x$ del panel de modelación, cuánto mejora el pronóstico al **agregarla al benchmark**. En cada origen se toma el orden ARIMA que eligió `auto.arima` para $g_t$ y se estima el mismo modelo con $x$ como regresor (regresión con errores ARIMA), con ventana expansiva. Se usa el valor de $x$ disponible según su desfase: $x_{t+1}$ si tiene desfase +1 y $x_t$ si tiene desfase 0, como la ENEC. Así el modelo ampliado anida al benchmark y la comparación se hace con la prueba de **Clark–West**.
+
+Para cada variable se reporta:
+
+- el RMSE relativo en cada ventana;
+- la estabilidad entre subperiodos;
+- la **reducción de la muestra** que implica: observaciones de entrenamiento disponibles al primer pronóstico frente a las del benchmark.
+
+Las variables cortas sólo se evalúan en las fechas en que tienen pronóstico, comparadas con el benchmark en esas mismas fechas.
+
+**Advertencia:** esta tabla es una evaluación *ex post* con fines de diagnóstico e interpretación. No se usa para escoger a mano las variables de los modelos, porque eso filtraría información del periodo de evaluación. La selección de variables dentro de los modelos se hace en tiempo real (estrategia "reducida", más abajo).
+</div>
+
+```{r contribucion-marginal}
+pronosticar_arimax <- function(h, nombre, k) {
+  p <- paneles_modelo[[h]]; x <- dplyr::lag(p[[nombre]], k)
+  b <- benchmark[benchmark$hoja == h, ]
+  map_dfr(fechas_pronostico, function(f) {
+    t0 <- f %m-% months(HORIZONTE)
+    filas <- which(p$fecha <= t0 & !is.na(p$g) & !is.na(x))
+    xf <- x[p$fecha == f]
+    if (length(filas) < MIN_ENTRENAMIENTO || length(xf) != 1 || is.na(xf)) return(NULL)
+    stopifnot(all(diff(filas) == 1))                     # muestra contigua
+    o <- b[b$fecha == f, ]
+    ajustar <- function(metodo) tryCatch(
+      forecast::Arima(ts(p$g[filas]), order = c(o$p, o$d, o$q), xreg = x[filas],
+                      include.mean = o$media, include.drift = o$deriva, method = metodo),
+      error = function(e) NULL)
+    fit <- ajustar("CSS-ML"); metodo <- "CSS-ML"
+    if (is.null(fit)) { fit <- ajustar("CSS"); metodo <- "CSS" }
+    tibble(hoja = h, nombre = nombre, fecha = f, n_entrenamiento = length(filas), metodo = metodo,
+           pronostico = if (is.null(fit)) NA_real_ else as.numeric(forecast::forecast(fit, xreg = xf, h = 1)$mean))
+  })
+}
+tareas_arimax <- catalogo_modelo %>% select(hoja, nombre, rezago_alineacion)
+individuales <- con_cache(
+  "arimax_individuales",
+  huella(paneles_modelo, select(catalogo_modelo, hoja, nombre, rezago_alineacion), benchmark, fechas_pronostico, MIN_ENTRENAMIENTO, "v1"),
+  function() bind_rows(aplicar_en_paralelo(seq_len(nrow(tareas_arimax)), function(i)
+    pronosticar_arimax(tareas_arimax$hoja[i], tareas_arimax$nombre[i], tareas_arimax$rezago_alineacion[i]))))
+
+individuales <- individuales %>%
+  left_join(base_bench, by = c("hoja", "fecha")) %>%
+  left_join(select(panel_objetivo, hoja, fecha, g), by = c("hoja", "fecha")) %>%
+  left_join(transmute(panel_objetivo, hoja, fecha = fecha %m+% months(1), g_previo = g), by = c("hoja", "fecha"))
+cat("Pronósticos individuales:", nrow(individuales), "| fallidos:", sum(is.na(individuales$pronostico)),
+    "| estimados con CSS:", sum(individuales$metodo == "CSS"), "\n")
+```
+
+```{r tabla-contribucion}
+contribucion <- individuales %>% group_by(hoja, nombre) %>%
+  group_modify(function(d, k) {
+    m <- map_dfr(ventanas$ventana, ~ comparar_con_benchmark(d, .x, anidado = TRUE)) %>%
+      select(ventana, n, RMSE_rel, p_valor) %>%
+      pivot_wider(names_from = ventana, values_from = c(n, RMSE_rel, p_valor), names_sep = " | ")
+    s <- rmse_rel_subperiodos(d) %>% pivot_wider(names_from = subperiodo, values_from = RMSE_rel, names_prefix = "rel ")
+    primera <- min(d$fecha[!is.na(d$pronostico)])
+    bind_cols(tibble(primer_pronostico = primera,
+                     entrenamiento_inicial = d$n_entrenamiento[d$fecha == primera][1]), m, s)
+  }) %>% ungroup() %>%
+  left_join(select(catalogo_modelo, hoja, nombre, origen, metodo, desfase, uso, historia_larga), by = c("hoja", "nombre")) %>%
+  left_join(transmute(benchmark, hoja, primer_pronostico = fecha, entrenamiento_benchmark = n_entrenamiento),
+            by = c("hoja", "primer_pronostico")) %>%
+  mutate(reduccion_muestra_pct = 100 * (1 - entrenamiento_inicial / entrenamiento_benchmark))
+
+rel_psc <- "RMSE_rel | Principal sin COVID"; p_psc <- "p_valor | Principal sin COVID"; rel_rec <- "RMSE_rel | Reciente"
+contribucion <- contribucion %>%
+  mutate(clasificacion = case_when(
+    is.na(.data[[rel_psc]]) & is.na(.data[[rel_rec]]) ~ "Sin pronósticos suficientes",
+    is.na(.data[[rel_psc]]) ~ if_else(.data[[rel_rec]] < 1, "Sólo evaluable en la reciente: mejora", "Sólo evaluable en la reciente: no mejora"),
+    .data[[rel_psc]] < 1 & .data[[p_psc]] < 0.10 & coalesce(.data[[rel_rec]], 0) < 1 ~ "Aporta (robusta)",
+    .data[[rel_psc]] < 1 & coalesce(.data[[rel_rec]], 0) < 1 ~ "Aporta (evidencia débil)",
+    .data[[rel_psc]] < 1 | coalesce(.data[[rel_rec]], 2) < 1 ~ "Inestable",
+    TRUE ~ "No aporta"))
+
+contribucion %>% count(hoja, clasificacion) %>%
+  pivot_wider(names_from = clasificacion, values_from = n, values_fill = 0) %>%
+  arrange(match(hoja, HOJAS_SECTOR)) %>%
+  tabla("Clasificación de las representaciones por su contribución marginal al benchmark")
+```
+
+```{r tabla-contribucion-sector}
+mostrar_contribucion <- function(h) {
+  contribucion %>% filter(hoja == h) %>%
+    arrange(.data[[rel_psc]]) %>%
+    select(nombre, clasificacion, primer_pronostico, reduccion_muestra_pct,
+           all_of(c(rel_psc, p_psc, "RMSE_rel | Principal", rel_rec, "p_valor | Reciente")),
+           `rel 2012-2019`, `rel 2020-2021`, `rel 2022-2026`) %>%
+    tabla(paste0("Contribución marginal al benchmark — ", NOMBRES_SECTOR[h],
+                 " (RMSE relativo < 1 = mejora; p de Clark-West)"),
+          altura = if (sum(contribucion$hoja == h) > 15) "520px" else NULL, digitos = 3)
+}
+mostrar_contribucion("MANUF")
+mostrar_contribucion("CONST")
+mostrar_contribucion("ELEC")
+mostrar_contribucion("MIN")
+```
+
+```{r grafica-contribucion, fig.height = 11}
+contribucion %>% filter(!is.na(.data[[rel_psc]]) | !is.na(.data[[rel_rec]])) %>%
+  select(hoja, nombre, `Principal sin COVID` = all_of(rel_psc), Reciente = all_of(rel_rec)) %>%
+  pivot_longer(c(`Principal sin COVID`, Reciente), names_to = "ventana", values_to = "rel") %>%
+  filter(!is.na(rel)) %>%
+  group_by(hoja) %>% mutate(nombre = reorder(nombre, -rel)) %>% ungroup() %>%
+  ggplot(aes(rel, nombre, color = ventana)) +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  geom_point(size = 1.4) +
+  facet_wrap(~ facet_hoja(hoja), scales = "free_y", ncol = 2) +
+  scale_color_manual(values = c("Principal sin COVID" = "#2563A8", Reciente = "#C0392B")) +
+  coord_cartesian(xlim = c(0.8, 1.3)) +
+  labs(title = "RMSE relativo al benchmark al agregar cada representación (menor que 1 = mejora)",
+       subtitle = "Eje recortado a [0.8, 1.3]", x = "RMSE / RMSE de auto.arima", y = NULL, color = NULL) +
+  theme(axis.text.y = element_text(size = 5.5))
+```
+
+<div class="interpretacion" id="interpretacion-contribucion">
+INTERPRETACION_CONTRIBUCION
+</div>
+
+## Estrategias de información: muestras, paneles desbalanceados y selección en tiempo real
+
+<div class="verificar">
+**Qué hace:** compara, en cada sector, las estrategias del planteamiento para combinar variables con historias distintas. Todas usan el mismo benchmark como base. Las estrategias de factores agregan al modelo ARIMA del benchmark `r K_FACTORES` factores (componentes principales de los predictores estandarizados) como regresores:
+
+| Estrategia | Variables | Muestra de estimación | Equivale en el planteamiento a |
+|---|---|---|---|
+| **Larga** | Sólo las de historia larga (desde `r format(FIN_HISTORIA_LARGA, "%Y-%m")` o antes) | Desde el inicio común de esas variables | Modelo base / muestra histórica larga |
+| **Común** | Todas las elegibles con dato en el mes objetivo | Periodo en que todas están disponibles | Modelo ampliado / muestra común |
+| **Expansiva** | Las que ya acumulan al menos `r MIN_HISTORIA_EXPANSIVA` meses de historia | Periodo común de las incluidas; crece con el tiempo | Muestras expansivas |
+| **Desbalanceada (EM)** | Todas las elegibles | Toda la historia del objetivo; los faltantes se estiman con factores (EM de Stock–Watson) dentro de cada ventana | Modelo de factores con información desbalanceada |
+| **Reducida** | En cada origen, las variables cuyo ARIMAX individual tuvo menor error que el benchmark en los últimos `r VENTANA_HISTORIAL` meses (≥ `r MIN_HISTORIAL` errores observados) | La de cada ARIMAX individual | Modelo reducido / selección dinámica |
+| **Todas (combinación)** | Promedio simple de todos los ARIMAX individuales disponibles | La de cada ARIMAX | Referencia de agregación |
+
+En las estrategias de factores la estandarización, los factores y la imputación EM se calculan **sólo con información disponible en cada origen**. Los valores estimados por EM se usan únicamente para calcular los factores: no se guardan ni se presentan como datos. **Qué verificar:** qué estrategia supera al benchmark de forma estable en cada sector, y con cuántas fechas comparables.
+</div>
+
+```{r funciones-factores}
+# Panel alineado: la fila s contiene el valor de cada representación utilizable para pronosticar g_s.
+panel_alineado <- function(h) {
+  cat_h <- filter(catalogo_modelo, hoja == h, en_estrategias)
+  p <- paneles_modelo[[h]]
+  X <- vapply(seq_len(nrow(cat_h)), function(i) dplyr::lag(p[[cat_h$nombre[i]]], cat_h$rezago_alineacion[i]), numeric(nrow(p)))
+  colnames(X) <- cat_h$nombre
+  X
+}
+paneles_alineados <- map(set_names(HOJAS_SECTOR, HOJAS_SECTOR), panel_alineado)
+
+# Componentes principales con datos faltantes (algoritmo EM de Stock y Watson, 2002).
+em_pca <- function(Z, k, tol = 1e-6, max_iter = 300) {
+  faltan <- is.na(Z); Zc <- Z; Zc[faltan] <- 0
+  for (i in seq_len(max_iter)) {
+    s <- svd(Zc, nu = k, nv = k)
+    ajuste <- s$u %*% diag(s$d[seq_len(k)], k) %*% t(s$v)
+    cambio <- if (any(faltan)) mean((Zc[faltan] - ajuste[faltan])^2) else 0
+    Zc[faltan] <- ajuste[faltan]
+    if (cambio < tol) break
+  }
+  list(factores = s$u %*% diag(s$d[seq_len(k)], k), cargas = s$v, completo = Zc, iteraciones = i)
+}
+
+pronosticar_factores <- function(h, f, estrategia) {
+  t0 <- f %m-% months(HORIZONTE); p <- paneles_modelo[[h]]; X <- paneles_alineados[[h]]
+  cat_h <- filter(catalogo_modelo, hoja == h, en_estrategias)
+  ent <- which(p$fecha <= t0 & !is.na(p$g)); i_f <- which(p$fecha == f)
+  n_obs <- colSums(!is.na(X[ent, , drop = FALSE])); disponible <- !is.na(X[i_f, ])
+  cols <- switch(estrategia,
+                 "Larga"              = cat_h$historia_larga & disponible,
+                 "Común"              = disponible & n_obs > 0,
+                 "Expansiva"          = disponible & n_obs >= MIN_HISTORIA_EXPANSIVA,
+                 "Desbalanceada (EM)" = disponible & n_obs >= MIN_HISTORIAL)
+  vacio <- tibble(hoja = h, fecha = f, estrategia = estrategia, pronostico = NA_real_,
+                  variables = sum(cols), n_entrenamiento = NA_integer_)
+  if (sum(cols) < 1) return(vacio)
+  Xc <- X[, cols, drop = FALSE]
+  filas <- if (estrategia == "Desbalanceada (EM)") ent else ent[complete.cases(Xc[ent, , drop = FALSE])]
+  if (length(filas) < MIN_ENTRENAMIENTO) return(mutate(vacio, n_entrenamiento = length(filas)))
+  if (estrategia != "Desbalanceada (EM)") stopifnot(all(diff(filas) == 1))
+  # Estandarización con la ventana de entrenamiento
+  mu <- colMeans(Xc[filas, , drop = FALSE], na.rm = TRUE)
+  de <- apply(Xc[filas, , drop = FALSE], 2, sd, na.rm = TRUE); de[!is.finite(de) | de == 0] <- 1
+  Z  <- sweep(sweep(Xc[c(filas, i_f), , drop = FALSE], 2, mu), 2, de, "/")
+  k  <- min(K_FACTORES, ncol(Z))
+  if (estrategia == "Desbalanceada (EM)") {
+    Fm <- em_pca(Z, k)$factores
+  } else {
+    v  <- svd(Z[seq_along(filas), , drop = FALSE], nu = 0, nv = k)$v
+    Fm <- Z %*% v
+  }
+  F_ent <- Fm[seq_along(filas), , drop = FALSE]; F_f <- Fm[length(filas) + 1, , drop = FALSE]
+  o <- benchmark[benchmark$hoja == h & benchmark$fecha == f, ]
+  y <- ts(p$g[filas])
+  if (estrategia == "Desbalanceada (EM)") stopifnot(all(diff(filas) == 1))
+  fit <- tryCatch(forecast::Arima(y, order = c(o$p, o$d, o$q), xreg = F_ent,
+                                  include.mean = o$media, include.drift = o$deriva), error = function(e) NULL)
+  if (is.null(fit)) fit <- tryCatch(forecast::Arima(y, order = c(o$p, o$d, o$q), xreg = F_ent, include.mean = o$media,
+                                                    include.drift = o$deriva, method = "CSS"), error = function(e) NULL)
+  mutate(vacio, n_entrenamiento = length(filas),
+         pronostico = if (is.null(fit)) NA_real_ else as.numeric(forecast::forecast(fit, xreg = F_f, h = 1)$mean))
+}
+```
+
+```{r estrategias-factores}
+ESTRATEGIAS_FACTORES <- c("Larga", "Común", "Expansiva", "Desbalanceada (EM)")
+tareas_factores <- expand_grid(hoja = HOJAS_SECTOR, estrategia = ESTRATEGIAS_FACTORES)
+pron_factores <- con_cache(
+  "estrategias_factores",
+  huella(paneles_alineados, select(catalogo_modelo, hoja, nombre, en_estrategias, historia_larga), benchmark,
+         fechas_pronostico, K_FACTORES, MIN_HISTORIA_EXPANSIVA, MIN_HISTORIAL, MIN_ENTRENAMIENTO, "v1"),
+  function() bind_rows(aplicar_en_paralelo(seq_len(nrow(tareas_factores)), function(i)
+    map_dfr(fechas_pronostico, ~ pronosticar_factores(tareas_factores$hoja[i], .x, tareas_factores$estrategia[i])))))
+
+pron_factores %>% filter(!is.na(pronostico)) %>% group_by(hoja, estrategia) %>%
+  summarise(primer_pronostico = min(fecha), pronosticos = n(),
+            variables_al_inicio = first(variables), variables_al_final = last(variables),
+            entrenamiento_inicial = first(n_entrenamiento), .groups = "drop") %>%
+  arrange(match(hoja, HOJAS_SECTOR), match(estrategia, ESTRATEGIAS_FACTORES)) %>%
+  tabla("Estrategias de factores: cobertura, número de variables y muestra de entrenamiento")
+```
+
+```{r estrategias-combinacion}
+# Matrices fecha × representación de pronósticos y errores individuales (sólo representaciones elegibles).
+combinar_individuales <- function(h) {
+  elegibles <- catalogo_modelo$nombre[catalogo_modelo$hoja == h & catalogo_modelo$en_estrategias]
+  d <- individuales %>% filter(hoja == h, nombre %in% elegibles, !is.na(pronostico))
+  P <- d %>% select(fecha, nombre, pronostico) %>% pivot_wider(names_from = nombre, values_from = pronostico) %>%
+    right_join(tibble(fecha = fechas_pronostico), by = "fecha") %>% arrange(fecha)
+  gg <- panel_objetivo %>% filter(hoja == h) %>% select(fecha, g)
+  bb <- base_bench %>% filter(hoja == h) %>% select(fecha, pron_bench)
+  y  <- gg$g[match(P$fecha, gg$fecha)]; fb <- bb$pron_bench[match(P$fecha, bb$fecha)]
+  M  <- as.matrix(P[, -1, drop = FALSE])
+  E2 <- (y - M)^2; Eb2 <- (y - fb)^2
+  map_dfr(seq_along(P$fecha), function(i) {
+    f <- P$fecha[i]; t0 <- f %m-% months(HORIZONTE)
+    # Historial: errores de pronósticos cuyo mes objetivo ya se observó en t0 (fechas <= t0)
+    hist <- which(P$fecha <= t0 & P$fecha > t0 %m-% months(VENTANA_HISTORIAL))
+    disponibles <- which(!is.na(M[i, ]))
+    seleccion <- integer(0)
+    if (length(hist) > 0) {
+      n_err <- colSums(!is.na(E2[hist, disponibles, drop = FALSE]))
+      razon <- colSums(E2[hist, disponibles, drop = FALSE], na.rm = TRUE) /
+        vapply(disponibles, function(j) sum(Eb2[hist][!is.na(E2[hist, j])]), numeric(1))
+      seleccion <- disponibles[n_err >= MIN_HISTORIAL & razon < 1]
+    }
+    tibble(hoja = h, fecha = f,
+           `Todas (combinación)` = if (length(disponibles)) mean(M[i, disponibles]) else NA_real_,
+           Reducida = if (length(seleccion)) mean(M[i, seleccion]) else fb[i],
+           variables_reducida = length(seleccion), variables_todas = length(disponibles))
+  })
+}
+pron_combinacion <- map_dfr(HOJAS_SECTOR, combinar_individuales)
+
+pron_estrategias <- bind_rows(
+  select(pron_factores, hoja, fecha, estrategia, pronostico),
+  pron_combinacion %>% select(hoja, fecha, `Todas (combinación)`, Reducida) %>%
+    pivot_longer(-c(hoja, fecha), names_to = "estrategia", values_to = "pronostico")) %>%
+  left_join(base_bench, by = c("hoja", "fecha")) %>%
+  left_join(select(panel_objetivo, hoja, fecha, g), by = c("hoja", "fecha")) %>%
+  left_join(transmute(panel_objetivo, hoja, fecha = fecha %m+% months(1), g_previo = g), by = c("hoja", "fecha"))
+ESTRATEGIAS <- c(ESTRATEGIAS_FACTORES, "Reducida", "Todas (combinación)")
+
+pron_combinacion %>% filter(fecha >= INICIO_EVAL_PRINCIPAL) %>% group_by(hoja) %>%
+  summarise(meses = n(), meses_sin_seleccion = sum(variables_reducida == 0),
+            variables_seleccionadas_mediana = median(variables_reducida),
+            variables_disponibles_mediana = median(variables_todas), .groups = "drop") %>%
+  arrange(match(hoja, HOJAS_SECTOR)) %>%
+  tabla("Estrategia reducida: variables seleccionadas en tiempo real (2012-01 en adelante)")
+```
+
+```{r metricas-estrategias}
+metricas_estrategias <- pron_estrategias %>% group_by(hoja, estrategia) %>%
+  group_modify(function(d, k) {
+    anidado <- !k$estrategia %in% c("Reducida", "Todas (combinación)")
+    bind_cols(map_dfr(ventanas$ventana, ~ comparar_con_benchmark(d, .x, anidado = anidado)),
+              rmse_rel_subperiodos(d) %>% pivot_wider(names_from = subperiodo, values_from = RMSE_rel, names_prefix = "rel ") %>%
+                slice(rep(1, length(ventanas$ventana))))
+  }) %>% ungroup() %>%
+  mutate(estrategia = factor(estrategia, levels = ESTRATEGIAS)) %>%
+  arrange(match(hoja, HOJAS_SECTOR), ventana, estrategia)
+
+metricas_estrategias %>%
+  select(hoja, ventana, estrategia, n, desde, RMSE, RMSE_bench, RMSE_rel, p_valor, prueba, acierto_direccion) %>%
+  tabla("Estrategias de información frente a auto.arima (mismas fechas por par; RMSE_rel < 1 = mejora)",
+        altura = "560px", digitos = 3)
+```
+
+```{r grafica-estrategias, fig.height = 6}
+metricas_estrategias %>% filter(!is.na(RMSE_rel)) %>%
+  ggplot(aes(RMSE_rel, estrategia, color = ventana, shape = ventana)) +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  geom_point(size = 2.4, position = position_dodge(width = 0.5)) +
+  facet_wrap(~ facet_hoja(hoja), ncol = 2) +
+  scale_color_manual(values = c("Principal" = "grey50", "Principal sin COVID" = "#2563A8", "Reciente" = "#C0392B")) +
+  labs(title = "Estrategias de información: RMSE relativo a auto.arima",
+       subtitle = "Cada punto compara la estrategia con el benchmark en las fechas en que ambos tienen pronóstico",
+       x = "RMSE / RMSE de auto.arima", y = NULL, color = NULL, shape = NULL)
+```
+
+```{r comparacion-fechas-comunes}
+# Comparación estricta: todas las estrategias y el benchmark en las mismas fechas, por sector y ventana.
+metricas_comunes <- pron_estrategias %>% group_by(hoja) %>%
+  group_modify(function(d, k) {
+    map_dfr(ventanas$ventana, function(v) {
+      w <- d %>% filter(en_ventana(fecha, v)) %>% group_by(fecha) %>%
+        filter(sum(!is.na(pronostico)) == length(ESTRATEGIAS), !is.na(g)) %>% ungroup()
+      if (nrow(w) == 0) return(tibble(ventana = v, n = 0L))
+      w %>% group_by(estrategia) %>%
+        summarise(n = n(), desde = min(fecha), RMSE_rel = sqrt(mean((g - pronostico)^2)) / sqrt(mean((g - pron_bench)^2)),
+                  .groups = "drop") %>% mutate(ventana = v)
+    })
+  }) %>% ungroup() %>% filter(!is.na(estrategia))
+metricas_comunes %>%
+  pivot_wider(names_from = estrategia, values_from = RMSE_rel) %>%
+  arrange(match(hoja, HOJAS_SECTOR), ventana) %>%
+  tabla("Comparación estricta: RMSE relativo a auto.arima con las seis estrategias en las mismas fechas", digitos = 3)
+```
+
+<div class="interpretacion" id="interpretacion-estrategias">
+INTERPRETACION_ESTRATEGIAS
+</div>
+
+## Reconstrucción de historias cortas con factores comunes
+
+<div class="verificar">
+**Qué hace:** evalúa si los factores comunes reconstruyen bien los datos de variables de historia media antes de su inicio. Así se puede juzgar si "rellenarlas" (lo que hace implícitamente la estrategia EM) recupera información real. **Prueba:** en un origen dado, se ocultan los primeros años observados de un bloque (EMOE en manufacturas, ENEC en construcción). Se reconstruyen con EM usando sólo el resto de la información hasta el origen, y se comparan con los valores reales. La medida es el $R^2$ de reconstrucción: 1 es perfecto; 0 equivale a imputar la media; un valor negativo, a algo peor que la media. **Qué verificar:** si la reconstrucción tiene $R^2$ claramente positivo.
+</div>
+
+```{r prueba-reconstruccion}
+probar_reconstruccion <- function(h, patron, origen, oculto_desde, oculto_hasta, k = K_FACTORES) {
+  p <- paneles_modelo[[h]]; X <- paneles_alineados[[h]]
+  filas <- which(p$fecha <= origen)
+  Xo <- X[filas, , drop = FALSE]
+  cols_obj <- grep(patron, colnames(Xo))
+  ocultar <- p$fecha[filas] >= oculto_desde & p$fecha[filas] <= oculto_hasta
+  verdad <- Xo[ocultar, cols_obj, drop = FALSE]
+  Xm <- Xo; Xm[ocultar, cols_obj] <- NA
+  usar <- colSums(!is.na(Xm)) >= MIN_HISTORIAL
+  mu <- colMeans(Xm[, usar], na.rm = TRUE); de <- apply(Xm[, usar], 2, sd, na.rm = TRUE)
+  Z <- sweep(sweep(Xm[, usar], 2, mu), 2, de, "/")
+  rec <- em_pca(Z, k)$completo
+  idx <- match(colnames(Xo)[cols_obj], colnames(Z))
+  map_dfr(seq_along(cols_obj), function(j) {
+    real <- verdad[, j]; ok <- !is.na(real)
+    if (sum(ok) < 12 || is.na(idx[j])) return(NULL)
+    estimado <- rec[ocultar, idx[j]][ok] * de[idx[j]] + mu[idx[j]]
+    tibble(hoja = h, representacion = colnames(Xo)[cols_obj][j], meses_ocultos = sum(ok),
+           correlacion = cor(real[ok], estimado),
+           R2_reconstruccion = 1 - sum((real[ok] - estimado)^2) / sum((real[ok] - mean(real[ok]))^2))
+  })
+}
+reconstruccion <- bind_rows(
+  probar_reconstruccion("MANUF", "^EMOE_MANUF", as.Date("2015-12-01"), as.Date("2005-01-01"), as.Date("2009-12-01")),
+  probar_reconstruccion("CONST", "^ENEC_",      as.Date("2016-12-01"), as.Date("2008-01-01"), as.Date("2011-12-01")))
+reconstruccion %>% group_by(hoja) %>%
+  summarise(representaciones = n(), R2_mediana = median(R2_reconstruccion), R2_min = min(R2_reconstruccion),
+            R2_max = max(R2_reconstruccion), correlacion_mediana = median(correlacion), .groups = "drop") %>%
+  tabla("Calidad de la reconstrucción con factores (bloque oculto: EMOE 2005-2009; ENEC 2008-2011)", digitos = 2)
+tabla(reconstruccion, "Reconstrucción por representación", altura = "380px", digitos = 2)
+```
+
+<div class="interpretacion" id="interpretacion-reconstruccion">
+INTERPRETACION_RECONSTRUCCION
+</div>
+
+## Estrategia de información propuesta por sector
+
+```{r estrategia-sector}
+resumen_estrategias <- metricas_estrategias %>%
+  filter(ventana %in% c("Principal sin COVID", "Reciente")) %>%
+  select(hoja, estrategia, ventana, n, RMSE_rel, p_valor) %>%
+  pivot_wider(names_from = ventana, values_from = c(n, RMSE_rel, p_valor), names_sep = " | ") %>%
+  left_join(metricas_estrategias %>% filter(ventana == "Principal") %>% select(hoja, estrategia, `RMSE_rel | Principal` = RMSE_rel),
+            by = c("hoja", "estrategia")) %>%
+  mutate(mejora_en_ambas = `RMSE_rel | Principal sin COVID` < 1 & `RMSE_rel | Reciente` < 1,
+         peor_ventana = pmax(`RMSE_rel | Principal sin COVID`, `RMSE_rel | Reciente`, na.rm = FALSE))
+mejor_por_sector <- resumen_estrategias %>% filter(!is.na(peor_ventana)) %>%
+  group_by(hoja) %>% slice_min(peor_ventana, n = 1, with_ties = FALSE) %>% ungroup() %>%
+  arrange(match(hoja, HOJAS_SECTOR))
+tabla(resumen_estrategias %>% arrange(match(hoja, HOJAS_SECTOR), peor_ventana),
+      "Resumen por sector: RMSE relativo en las dos ventanas de referencia (peor_ventana = máximo de ambas)", digitos = 3)
+tabla(mejor_por_sector, "Estrategia con el mejor desempeño en su peor ventana, por sector", digitos = 3)
+```
+
+ESTRATEGIA_POR_SECTOR
+
+
 # Archivos de resultados {-}
 
 <div class="verificar">
@@ -2726,6 +3348,34 @@ archivos_entrega_2 <- c(archivos_entrega_2, file.path(DIR_RESULTADOS_2, "variabl
 stopifnot(all(file.exists(archivos_entrega_2)))
 ```
 
+```{r guardar-entrega-3}
+guardar_csv_3 <- function(df, nombre) {
+  ruta <- file.path(DIR_RESULTADOS_3, paste0(nombre, ".csv"))
+  utils::write.csv(df, ruta, row.names = FALSE, fileEncoding = "UTF-8")
+  ruta
+}
+archivos_entrega_3 <- c(
+  guardar_csv_3(catalogo_modelo, "catalogo_panel_modelacion"),
+  guardar_csv_3(pronosticos_benchmarks, "benchmarks_pronosticos"),
+  guardar_csv_3(metricas_benchmarks, "benchmarks_metricas"),
+  guardar_csv_3(benchmark, "autoarima_ordenes"),
+  guardar_csv_3(select(individuales, hoja, nombre, fecha, pronostico, pron_bench, g, n_entrenamiento, metodo), "arimax_individuales_pronosticos"),
+  guardar_csv_3(contribucion, "contribucion_marginal"),
+  guardar_csv_3(pron_estrategias, "estrategias_pronosticos"),
+  guardar_csv_3(metricas_estrategias, "estrategias_metricas"),
+  guardar_csv_3(metricas_comunes, "estrategias_fechas_comunes"),
+  guardar_csv_3(pron_combinacion, "estrategia_reducida_seleccion"),
+  guardar_csv_3(reconstruccion, "reconstruccion_factores"),
+  guardar_csv_3(resumen_estrategias, "estrategias_resumen_sector")
+)
+saveRDS(list(paneles_modelo = paneles_modelo, catalogo_modelo = catalogo_modelo, benchmark = benchmark,
+             pronosticos_benchmarks = pronosticos_benchmarks, individuales = individuales, contribucion = contribucion,
+             pron_estrategias = pron_estrategias, metricas_estrategias = metricas_estrategias, reconstruccion = reconstruccion,
+             archivo = ARCHIVO_EXCEL, md5 = unname(tools::md5sum(ARCHIVO_EXCEL)), fecha_ejecucion = Sys.time()),
+        file.path(DIR_RESULTADOS_3, "informacion.rds"))
+stopifnot(all(file.exists(c(archivos_entrega_3, file.path(DIR_RESULTADOS_3, "informacion.rds")))))
+```
+
 ```{r libro-resultados}
 hojas_resultados <- list(
   "LEEME" = NULL,
@@ -2752,7 +3402,17 @@ hojas_resultados <- list(
   "EMAER_empalmada"       = left_join(emaer_empalmada, ind_empalmada, by = "fecha") %>% relocate(fuente, .after = fecha),
   "EMAER_compatibilidad"  = correlacion_encuesta,
   "EMAER_prueba_metricas" = metricas_prueba,
-  "EMAER_prueba_pronost"  = pronosticos_prueba
+  "EMAER_prueba_pronost"  = pronosticos_prueba,
+  "Catalogo_modelo"       = catalogo_modelo,
+  "Panel_modelo_MANUF"    = paneles_modelo$MANUF,
+  "Benchmark_metricas"    = metricas_benchmarks,
+  "Benchmark_autoarima"   = benchmark,
+  "Contribucion_marginal" = contribucion,
+  "Estrategias_metricas"  = metricas_estrategias,
+  "Estrategias_comunes"   = metricas_comunes,
+  "Estrategias_pronost"   = pron_estrategias,
+  "Reconstruccion"        = reconstruccion,
+  "Estrategia_sector"     = resumen_estrategias
 )
 descripcion_hojas <- c(
   LEEME = "Esta hoja: contenido del libro",
@@ -2777,7 +3437,17 @@ descripcion_hojas <- c(
   EMAER_empalmada = "EMAER empalmada (encuesta previa 2003-2017 + EMAER 2018+) e indicadores",
   EMAER_compatibilidad = "Correlación de los indicadores EMAER con g_t dentro de cada encuesta",
   EMAER_prueba_metricas = "Prueba fuera de muestra de la EMAER: métricas",
-  EMAER_prueba_pronost = "Prueba fuera de muestra de la EMAER: pronósticos y errores")
+  EMAER_prueba_pronost = "Prueba fuera de muestra de la EMAER: pronósticos y errores",
+  Catalogo_modelo = "Panel de modelación: representaciones, historia y uso (entrega 3)",
+  Panel_modelo_MANUF = "Panel de modelación de manufacturas (EMAER empalmada)",
+  Benchmark_metricas = "auto.arima y benchmarks secundarios: métricas por ventana",
+  Benchmark_autoarima = "auto.arima: pronóstico y orden elegido en cada origen",
+  Contribucion_marginal = "Contribución marginal de cada representación al benchmark",
+  Estrategias_metricas = "Estrategias de información frente a auto.arima, por ventana",
+  Estrategias_comunes = "Estrategias en las mismas fechas (comparación estricta)",
+  Estrategias_pronost = "Pronósticos de las estrategias de información",
+  Reconstruccion = "Calidad de la reconstrucción de historias cortas con factores",
+  Estrategia_sector = "Resumen por sector para elegir la estrategia de información")
 hojas_resultados$LEEME <- tibble(
   hoja = names(descripcion_hojas), contenido = unname(descripcion_hojas),
   filas = c(NA, map_int(hojas_resultados[-1], nrow)))
@@ -2799,7 +3469,7 @@ stopifnot(identical(verificacion_libro$hoja, names(hojas_resultados)),
 tabla(verificacion_libro, paste("Hojas del libro", ARCHIVO_RESULTADOS_XLSX))
 ```
 
-# Resumen de la entrega 2 y puntos para validar {-}
+# Resumen de la entrega 2 (validada) {-}
 
 **Qué contiene esta entrega:**
 
@@ -2812,7 +3482,7 @@ tabla(verificacion_libro, paste("Hojas del libro", ARCHIVO_RESULTADOS_XLSX))
 7. **Prueba de la EMAER histórica:** la serie empalmada en balances es preferible a la que empieza en 2018, pero por sí sola no mejora de forma robusta al AR(1).
 8. **Libro de resultados** (`resultados/resultados_pronostico_imai.xlsx`) con `r length(hojas_resultados)` hojas, más los CSV y RDS de `resultados/01_diagnostico` y `resultados/02_variables`.
 
-**Puntos para validar antes de la entrega 3:**
+**Puntos que se validaron al cierre de la entrega 2** (las respuestas están en la tabla de decisiones de la sección 1):
 
 1. Las reglas de representación base, en particular:
    - la EMOE en nivel y en diferencia anual;
@@ -2820,7 +3490,7 @@ tabla(verificacion_libro, paste("Hojas del libro", ARCHIVO_RESULTADOS_XLSX))
    - los balances EMAER en nivel, diferencia anual y promedio de 12 meses.
 2. Adoptar la EMAER empalmada en balances (sin indicadora) como bloque candidato desde 2004. Las series EMAER sin historia se evaluarían sólo en la ventana reciente y días laborados por separado.
 3. La ENOE (hueco de 2020): evaluar en la entrega 3 su exclusión frente a modelos que admiten faltantes, sin imputar con información posterior.
-4. Usar el AR(1) directo, además del último dato observado, como benchmark de referencia en las entregas 3 y 4.
+4. Usar el AR(1) directo, además del último dato observado, como benchmark de referencia. **Decisión final:** el benchmark de referencia es `auto.arima`; el AR(1) directo, el último dato observado y la media histórica quedan como benchmarks secundarios.
 
 # Información de la sesión {-}
 
