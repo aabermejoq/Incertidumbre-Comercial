@@ -6,8 +6,8 @@ El proyecto es un solo documento RMarkdown que se desarrolla por entregas. Cada 
 
 | Entrega | Contenido | Estado |
 |---|---|---|
-| 1 | Configuración, lectura y diagnóstico de datos | Lista para revisión |
-| 2 | Construcción de variaciones anuales y transformaciones | Pendiente |
+| 1 | Configuración, lectura y diagnóstico de datos | Validada |
+| 2 | Construcción de variaciones anuales y transformaciones; prueba de la EMAER histórica | Lista para revisión |
 | 3 | Disponibilidad histórica y estrategia de información | Pendiente |
 | 4 | Benchmarks y modelos econométricos | Pendiente |
 | 5 | Machine learning, factores y combinaciones | Pendiente |
@@ -17,10 +17,31 @@ El proyecto es un solo documento RMarkdown que se desarrolla por entregas. Cada 
 
 ```
 pronostico_actividad_industrial/
-├── pronostico_actividad_industrial.Rmd   # documento único (código + metodología + resultados)
-├── datos/base_imai.xlsx                  # libro de datos original (sin modificar)
-└── resultados/01_diagnostico/            # tablas intermedias (CSV) y datos leídos (RDS)
+├── pronostico_actividad_industrial.Rmd       # documento único (código + metodología + resultados)
+├── datos/
+│   ├── base_imai.xlsx                        # libro original (sin modificar; sólo referencia)
+│   └── base_imai_corregida.xlsx              # libro con las correcciones aprobadas (base del análisis)
+├── herramientas/corregir_excel.py            # genera el libro corregido desde el original
+└── resultados/
+    ├── resultados_pronostico_imai.xlsx       # libro con todas las tablas de resultados
+    ├── 01_diagnostico/                       # tablas del diagnóstico (CSV) y datos leídos (RDS)
+    └── 02_variables/                         # variables construidas, paneles por sector y prueba EMAER
 ```
+
+## Libro corregido
+
+`base_imai_corregida.xlsx` aplica las dos correcciones aprobadas en la entrega 1:
+
+1. `CONST!SHCP1` desde 2011-07 apunta al total correcto (`'SHCP REAL'!B`); en el original copiaba otra serie con un desfase de 216 meses.
+2. `ELEC` empieza en 1993-01 (antes, 1997-07), con fórmulas a las mismas hojas fuente; las series IMSS y ENOE conservan su inicio real.
+
+Se generó editando directamente el XML del libro, para conservar sus conexiones de datos y vínculos externos:
+
+```bash
+python3 herramientas/corregir_excel.py datos/base_imai.xlsx datos/base_imai_corregida.xlsx
+```
+
+El Rmd verifica que no cambie nada más que esas celdas.
 
 ## Ejecución
 
@@ -30,6 +51,4 @@ Desde esta carpeta, en R (≥ 4.2):
 rmarkdown::render("pronostico_actividad_industrial.Rmd")
 ```
 
-También se puede ejecutar chunk por chunk en RStudio. Paquetes de la entrega 1: `readxl`, `dplyr`, `tidyr`, `purrr`, `tibble`, `stringr`, `lubridate`, `ggplot2`, `scales`, `patchwork`, `knitr`, `kableExtra`, `zoo`, `tseries`, `strucchange`. El documento no instala paquetes, salvo que se active `INSTALAR_FALTANTES <- TRUE`. La ejecución completa tarda alrededor de un minuto.
-
-El HTML generado no se versiona (se reconstruye con el comando anterior).
+También se puede ejecutar chunk por chunk en RStudio. Paquetes: `readxl`, `dplyr`, `tidyr`, `purrr`, `tibble`, `stringr`, `lubridate`, `ggplot2`, `scales`, `patchwork`, `knitr`, `kableExtra`, `zoo`, `tseries`, `strucchange` y `writexl`. El documento no instala paquetes, salvo que se active `INSTALAR_FALTANTES <- TRUE`. La ejecución completa tarda alrededor de un minuto. El HTML generado no se versiona: se reconstruye con el comando anterior.

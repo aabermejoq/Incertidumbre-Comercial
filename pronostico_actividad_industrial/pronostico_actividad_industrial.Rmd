@@ -1,6 +1,6 @@
 ---
 title: "Pronóstico mensual de la actividad industrial de México"
-subtitle: "Entrega 1 · Diagnóstico de la base de datos (sin estimación de modelos)"
+subtitle: "Entregas 1 y 2 · Diagnóstico de datos y construcción de variables (sin estimación de modelos de pronóstico)"
 date: "`r format(Sys.Date(), '%Y-%m-%d')`"
 output:
   html_document:
@@ -55,12 +55,12 @@ $$
 
 Todos los modelos pronosticarán directamente $g_{t+1}$. No se pronosticarán niveles ni se usarán modelos estacionales, desestacionalización ni dummies mensuales. El criterio de selección será el desempeño **fuera de muestra**, usando en cada fecha sólo la información que habría estado disponible.
 
-**Esta es la primera entrega.** Comprende exclusivamente la configuración, la lectura del archivo Excel y el diagnóstico de las cuatro pestañas. **No se estima ningún modelo.** Las transformaciones que aparecen aquí (variaciones o diferencias anuales "provisionales") sólo sirven para describir los datos; las transformaciones definitivas se definirán y justificarán en la segunda entrega.
+**Este documento contiene las entregas 1 y 2.** La entrega 1 (configuración, lectura y diagnóstico) ya fue validada; sus decisiones se registran abajo y se aplicaron en un archivo corregido. La entrega 2 (sección de construcción de variables) define las variaciones anuales, las transformaciones de cada predictor y la regla de disponibilidad de la información. Además incluye la **prueba solicitada con los datos históricos de la EMAER** (sección de disponibilidad histórica). Esa prueba es el único lugar donde se estiman regresiones: son modelos sencillos y preespecificados, usados como herramienta de evaluación y no como modelos finales. En la sección 2 las transformaciones "provisionales" sólo sirven para describir los datos; las definitivas son las de la sección 3.
 
 | Entrega | Contenido | Estado |
 |---|---|---|
-| 1 | Configuración, lectura y diagnóstico de datos | **Este documento** |
-| 2 | Construcción de variaciones anuales y transformaciones | Pendiente de validación |
+| 1 | Configuración, lectura y diagnóstico de datos | Validada |
+| 2 | Construcción de variaciones anuales y transformaciones; prueba de la EMAER histórica | **Este documento (para revisión)** |
 | 3 | Disponibilidad histórica, contribución marginal y estrategia de información | Pendiente |
 | 4 | Benchmarks y modelos econométricos | Pendiente |
 | 5 | Machine learning, factores y combinaciones | Pendiente |
@@ -88,7 +88,8 @@ paquetes_requeridos <- c(
   "knitr", "kableExtra",                                       # tablas
   "zoo",          # estadísticos móviles (ventanas hacia atrás)
   "tseries",      # pruebas ADF y KPSS descriptivas
-  "strucchange"   # quiebres estructurales (Bai-Perron), sólo descriptivo
+  "strucchange",  # quiebres estructurales (Bai-Perron), sólo descriptivo
+  "writexl"       # libro de resultados en Excel
 )
 
 INSTALAR_FALTANTES <- FALSE   # cambiar a TRUE para instalar desde CRAN
@@ -128,7 +129,11 @@ kbl(versiones_paquetes, caption = "Versiones de los paquetes utilizados") %>%
 
 ```{r parametros}
 # --- Archivo y pestañas -------------------------------------------------------
-ARCHIVO_EXCEL <- file.path("datos", "base_imai.xlsx")
+# Libro original (sin modificar) y libro con las correcciones aprobadas en la
+# entrega 1 (SHCP1 y extensión de ELEC a 1993). Todo el análisis usa el corregido;
+# el original sólo se lee para documentar y verificar las correcciones.
+ARCHIVO_ORIGINAL <- file.path("datos", "base_imai.xlsx")
+ARCHIVO_EXCEL    <- file.path("datos", "base_imai_corregida.xlsx")
 HOJAS_SECTOR  <- c(Manufacturas = "MANUF", Construccion = "CONST",
                    Electricidad = "ELEC",  Mineria      = "MIN")
 # En cada pestaña la variable objetivo es la segunda columna y se llama igual que la pestaña.
@@ -161,13 +166,21 @@ SUBPERIODOS <- tibble(
 )
 
 # --- Resultados intermedios ---------------------------------------------------
-DIR_RESULTADOS <- file.path("resultados", "01_diagnostico")
-dir.create(DIR_RESULTADOS, recursive = TRUE, showWarnings = FALSE)
+DIR_RESULTADOS   <- file.path("resultados", "01_diagnostico")
+DIR_RESULTADOS_2 <- file.path("resultados", "02_variables")
+ARCHIVO_RESULTADOS_XLSX <- file.path("resultados", "resultados_pronostico_imai.xlsx")
+for (d in c(DIR_RESULTADOS, DIR_RESULTADOS_2)) dir.create(d, recursive = TRUE, showWarnings = FALSE)
 
-stopifnot(file.exists(ARCHIVO_EXCEL))
-cat("Archivo:", normalizePath(ARCHIVO_EXCEL), "\n")
-cat("Tamaño :", format(file.size(ARCHIVO_EXCEL), big.mark = ","), "bytes\n")
-cat("MD5    :", unname(tools::md5sum(ARCHIVO_EXCEL)), "\n")
+# --- Prueba de la EMAER histórica (preespecificada, sección 4) ----------------
+INICIO_EMAER_NUEVA   <- as.Date("2018-01-01")  # inicio de la EMAER actual
+MIN_ENTRENAMIENTO    <- 36                      # observaciones mínimas para estimar
+
+stopifnot(file.exists(ARCHIVO_ORIGINAL), file.exists(ARCHIVO_EXCEL))
+tibble(archivo = c(ARCHIVO_ORIGINAL, ARCHIVO_EXCEL),
+       uso     = c("Original (sólo referencia)", "Corregido (base del análisis)"),
+       bytes   = file.size(c(ARCHIVO_ORIGINAL, ARCHIVO_EXCEL)),
+       md5     = unname(tools::md5sum(c(ARCHIVO_ORIGINAL, ARCHIVO_EXCEL)))) %>%
+  kbl(caption = "Archivos de datos") %>% kable_styling(bootstrap_options = "condensed", full_width = FALSE)
 ```
 
 Las fechas de evaluación son **propuestas provisionales** y en esta entrega sólo se usan como referencia visual y para cuantificar cuántas observaciones de entrenamiento tendría cada especificación. La ventana principal (desde `r format(INICIO_EVAL_PRINCIPAL, "%Y-%m")`) deja 18 años de entrenamiento al objetivo y a las variables que empiezan en 1993 (13.5 años a las que empiezan en 1997), y permite evaluar alrededor de 175 pronósticos, incluido el episodio COVID. La ventana reciente (desde `r format(INICIO_EVAL_RECIENTE, "%Y-%m")`) es la primera que permite evaluar con un mínimo razonable de entrenamiento las variables que empiezan en 2018, y además excluye el choque de 2020–2021.
@@ -462,7 +475,103 @@ stopifnot(all(verificacion_fechas$dia_1_del_mes), all(verificacion_fechas$ordena
 ```
 
 <div class="interpretacion">
-Las cuatro pestañas tienen frecuencia mensual sin huecos de fechas. `MANUF`, `CONST` y `MIN` cubren de enero de 1993 a septiembre de 2026; **`ELEC` empieza en julio de 1997**, aunque —como se mostrará en la sección de procedencia— el objetivo y varias de sus variables existen en las hojas fuente desde 1993. En las cuatro pestañas la última fila (septiembre de 2026) no tiene dato del objetivo: es el mes a pronosticar.
+Las cuatro pestañas tienen frecuencia mensual sin huecos de fechas y, con las correcciones aprobadas, cubren de enero de 1993 a septiembre de 2026. En el libro original `ELEC` empezaba en julio de 1997. En las cuatro pestañas la última fila (septiembre de 2026) no tiene dato del objetivo: es el mes a pronosticar.
+</div>
+
+## Decisiones validadas y archivo corregido
+
+### Decisiones de la entrega 1
+
+```{r decisiones-validadas}
+decisiones <- tribble(
+  ~n, ~decision, ~respuesta, ~aplicacion,
+  1, "Corregir SHCP1 con 'SHCP REAL'!B", "Sí",
+     "Fórmulas de CONST!X224:X406 en base_imai_corregida.xlsx",
+  2, "Extender la pestaña ELEC a 1993-01", "Sí",
+     "54 filas nuevas en ELEC con fórmulas a IMAI!D, CFE!B:H e INPP!E (desde 1994-01); IMSS y ENOE quedan vacías porque no existen",
+  3, "Regla de disponibilidad: replicar el desfase observado hoy", "Sí",
+     "Sección 3: función informacion_disponible()",
+  4, "Ventanas de evaluación desde 2012-01 y 2022-01; COVID por separado", "Sí",
+     "Parámetros generales; sección 3",
+  5, "Balances EMAER (Aumente − Disminuya) en lugar de los tres porcentajes", "Sí",
+     "Sección 3",
+  6, "Comparar exportaciones en dólares con las de pesos constantes", "No",
+     "Se conservan las exportaciones en pesos constantes del libro",
+  7, "Documentación sobre la cobertura de los índices CFE o del IMAI eléctrico", "No disponible",
+     "La divergencia de electricidad se trata como un cambio de relación de causa desconocida",
+  8, "Probar los datos históricos de la EMAER", "Solicitud adicional",
+     "Sección 4: reconstrucción y prueba fuera de muestra",
+  9, "Entregar el Excel corregido, el Rmd y un Excel con los resultados", "Solicitud adicional",
+     "datos/base_imai_corregida.xlsx y resultados/resultados_pronostico_imai.xlsx"
+)
+tabla(decisiones, "Decisiones validadas al cierre de la entrega 1")
+```
+
+Los valores sospechosos de `CFE4` (2006-01) y `CFE6` (2000-10) se mantienen sin cambios y quedan marcados, como se propuso en el diagnóstico.
+
+### Cómo se construyó el archivo corregido
+
+`datos/base_imai_corregida.xlsx` se generó con el programa `herramientas/corregir_excel.py`, que **edita directamente el XML del libro** en lugar de abrirlo y guardarlo con una biblioteca de hojas de cálculo. Así se conservan intactas las conexiones de datos (consultas web y Power Query) y los vínculos externos del libro, que se perderían en un guardado convencional. El programa:
+
+1. cambia las fórmulas de `CONST!X224:X406` (SHCP1, 2011-07 a 2026-09) a `='SHCP REAL'!B{fila+1}`;
+2. inserta en `ELEC` las filas de 1993-01 a 1997-06, con fórmulas a las mismas hojas fuente que usan las filas existentes, y deja vacías las celdas de series que todavía no existían;
+3. deja en caché los valores de las celdas nuevas o modificadas (tomados de sus celdas fuente), elimina la cadena de cálculo (Excel la reconstruye) y marca el libro para recalcular todo al abrirse.
+
+Se comprobó por separado, recalculando una copia con LibreOffice, que las 70,390 fórmulas del libro se evalúan sin errores y que los valores coinciden con los guardados.
+
+### Verificación de las correcciones
+
+<div class="verificar">
+**Qué hace:** compara, fecha por fecha, las pestañas sectoriales del libro original y del corregido, y compara como texto todas las hojas fuente. **Qué verificar:** que sólo cambien `CONST!SHCP1` (desde 2011-07) y las filas nuevas de `ELEC`, que no se pierda ninguna observación y que las hojas fuente sean idénticas.
+</div>
+
+```{r verificar-correcciones}
+original <- map(HOJAS_SECTOR, ~ leer_hoja_sector(ARCHIVO_ORIGINAL, .x) %>% filter(!is.na(fecha)))
+names(original) <- HOJAS_SECTOR
+
+comparacion_correcciones <- map_dfr(HOJAS_SECTOR, function(h) {
+  o <- original[[h]]; cc <- datos_crudos[[h]]
+  stopifnot(identical(names(o), names(cc)))
+  base <- left_join(cc, o, by = "fecha", suffix = c("", ".orig"))
+  map_dfr(setdiff(names(cc), "fecha"), function(v) {
+    x <- base[[v]]; y <- base[[paste0(v, ".orig")]]
+    igual <- (is.na(x) & is.na(y)) | (!is.na(x) & !is.na(y) & abs(x - y) <= 1e-9 * pmax(1, abs(x)))
+    tibble(hoja = h, variable = v,
+           obs_nuevas      = sum(!is.na(x) & is.na(y)),
+           obs_modificadas = sum(!is.na(x) & !is.na(y) & !igual),
+           obs_eliminadas  = sum(is.na(x) & !is.na(y)),
+           desde = if (any(!igual)) min(base$fecha[!igual]) else as.Date(NA),
+           hasta = if (any(!igual)) max(base$fecha[!igual]) else as.Date(NA))
+  })
+})
+cambios <- filter(comparacion_correcciones, obs_nuevas + obs_modificadas + obs_eliminadas > 0)
+tabla(cambios, "Variables con cambios entre el libro original y el corregido")
+
+# Filas de fecha nuevas por pestaña
+filas_nuevas <- map_int(set_names(HOJAS_SECTOR, HOJAS_SECTOR), ~ nrow(datos_crudos[[.x]]) - nrow(original[[.x]]))
+print(filas_nuevas)
+
+# Hojas fuente: comparación como texto (todas las celdas de las primeras 80 columnas)
+fuentes_identicas <- map_lgl(HOJAS_FUENTE, function(h) {
+  leer <- function(a) suppressMessages(read_excel(a, sheet = h, col_names = FALSE, col_types = "text",
+                                                  .name_repair = "minimal", range = cell_cols(c(1, 80))))
+  identical(leer(ARCHIVO_ORIGINAL), leer(ARCHIVO_EXCEL))
+})
+cat("Hojas fuente idénticas:", sum(fuentes_identicas), "de", length(HOJAS_FUENTE), "\n")
+
+modificadas <- filter(comparacion_correcciones, obs_modificadas > 0)
+stopifnot(
+  all(comparacion_correcciones$obs_eliminadas == 0),
+  nrow(modificadas) == 1, modificadas$hoja == "CONST", modificadas$variable == "SHCP1",
+  all(cambios$hoja[cambios$obs_nuevas > 0] == "ELEC"),
+  filas_nuevas[["ELEC"]] == 54, all(filas_nuevas[c("MANUF", "CONST", "MIN")] == 0),
+  min(datos_crudos$ELEC$fecha) == as.Date("1993-01-01"),
+  all(fuentes_identicas)
+)
+```
+
+<div class="interpretacion">
+Las correcciones son exactamente las aprobadas. `SHCP1` cambia en `r cambios$obs_modificadas[cambios$variable == "SHCP1"]` meses (2011-07 a 2026-09). En `ELEC` se agregan `r filas_nuevas[["ELEC"]]` meses de historia al objetivo y a los siete índices `CFE`, y 42 al INPP eléctrico (desde 1994-01). No se pierde ni se modifica ninguna otra observación, y las `r length(HOJAS_FUENTE)` hojas fuente son idénticas.
 </div>
 
 # Diagnóstico de datos
@@ -621,11 +730,11 @@ diccionario <- bind_rows(
            c("flujo_fiscal", "flujo_fiscal", "flujo_fiscal", "flujo_signo", "flujo_signo", "flujo_signo",
              "flujo_signo", "flujo_signo", "flujo_fiscal"),
            "SHCP REAL", num_a_letra(2:10),
-           c("⚠ Error de fórmula desde 2011-07 (ver sección de procedencia)", rep("", 8))),
+           c("Corregido: en el libro original había un error de fórmula desde 2011-07", rep("", 8))),
   # ---------------- ELECTRICIDAD ----------------
   fila_dic("ELEC", "ELEC", "IMAI: generación, transmisión y distribución de energía eléctrica, agua y gas por ductos",
            "INEGI (vía Banxico SIE)", "Índice 2018=100", "Actividad", "objetivo", "IMAI", "D",
-           "La pestaña empieza en 1997-07, pero la fuente tiene datos desde 1993-01"),
+           "Corregido: en el libro original la pestaña empezaba en 1997-07; ahora empieza en 1993-01"),
   fila_dic("ELEC", "IMSS_ELEC_P", "Puestos de trabajo permanentes afiliados al IMSS: electricidad y agua potable",
            "IMSS", "Puestos", "Mercado laboral", "empleo", "IMSS", "AF"),
   fila_dic("ELEC", "IMSS_ELEC_E", "Puestos de trabajo eventuales urbanos afiliados al IMSS: electricidad y agua potable",
@@ -756,56 +865,55 @@ procedencia %>%
 ```
 
 <div class="interpretacion">
-`r resumen_procedencia$coincidencia_total` de las `r resumen_procedencia$variables` variables coinciden al 100% con su hoja fuente en todas las fechas comunes. Esto confirma que las fechas de las pestañas sectoriales están alineadas con las de las fuentes y que el diccionario está bien asignado. La única excepción es **`SHCP1`** (construcción), que sólo coincide con su fuente hasta junio de 2011. La columna de "otras fuentes idénticas" muestra duplicados esperados: la ENEC aparece en dos cuadros de la misma hoja, y 17 de las 26 series EMAER aparecen también en las hojas `EMAER` y `EMAER HIST`. Las fuentes declaradas confirman además que `ELEC_GRANDES` (en `MANUF`) es la misma serie que `CFE5` y que `GENERACION` es `CFE1`.
+`r resumen_procedencia$coincidencia_total` de las `r resumen_procedencia$variables` variables coinciden al 100% con su hoja fuente en todas las fechas comunes. Esto confirma que las fechas de las pestañas sectoriales están alineadas con las de las fuentes y que el diccionario está bien asignado. En el libro corregido no hay excepciones. En el libro original, **`SHCP1`** (construcción) sólo coincidía con su fuente hasta junio de 2011 (se documenta abajo). La columna de "otras fuentes idénticas" muestra duplicados esperados: la ENEC aparece en dos cuadros de la misma hoja, y 17 de las 26 series EMAER aparecen también en las hojas `EMAER` y `EMAER HIST`. Las fuentes declaradas confirman además que `ELEC_GRANDES` (en `MANUF`) es la misma serie que `CFE5` y que `GENERACION` es `CFE1`.
 
 *Nota técnica:* en las hojas de Banxico, las fechas de agosto están guardadas con formato numérico (número de serie de Excel) y no como fecha. El lector de hojas fuente las convierte explícitamente. Sin esa corrección se perdería un mes de cada año en la verificación. Las pestañas sectoriales no tienen este problema: sus fechas pasaron la verificación estructural.
 </div>
 
-### Error de fórmula en `SHCP1` (construcción)
+### Error de fórmula en `SHCP1` del libro original (corregido)
 
 <div class="verificar">
-**Qué hace:** examina el patrón de la discrepancia de `SHCP1`. La hipótesis, obtenida al inspeccionar las fórmulas del libro, es que a partir de julio de 2011 la celda apunta a `'SHCP REAL'!C9`, `C10`, …, es decir, a la columna de inversión **energética** (`SHCP2`) de julio de 1993 en adelante. **Qué verificar:** si la hipótesis se confirma numéricamente y si la identidad contable (total = suma de componentes) se cumple antes y después.
+**Qué hace:** documenta el error de `SHCP1` en el **libro original** y comprueba la corrección. Al inspeccionar las fórmulas se vio que, desde julio de 2011, la celda apuntaba a `'SHCP REAL'!C9`, `C10`, …, es decir, a la inversión **energética** (`SHCP2`) de julio de 1993 en adelante. **Qué verificar:** que la hipótesis se confirme numéricamente en el original y que, en el corregido, la identidad contable (total = suma de componentes) se cumpla en todo el periodo.
 </div>
 
 ```{r shcp1-error}
-const <- datos_crudos$CONST
-fecha_error <- procedencia$primera_discrepancia[procedencia$variable == "SHCP1"]
-idx_error   <- which(const$fecha >= fecha_error)
-# Hipótesis: SHCP1[2011-07 + k] = SHCP2[1993-07 + k]
-idx_origen  <- which(const$fecha == as.Date("1993-07-01")) + seq_along(idx_error) - 1
-hipotesis_confirmada <- isTRUE(all.equal(const$SHCP1[idx_error], const$SHCP2[idx_origen]))
+const          <- datos_crudos$CONST         # libro corregido
+const_original <- original$CONST             # libro original
+total_fuente   <- fuentes_ancho$`SHCP REAL!B`[match(const$fecha, fuentes_ancho$fecha)]
+discrepa       <- abs(const_original$SHCP1 - total_fuente) > 1e-6 * pmax(1, abs(total_fuente))
+fecha_error    <- min(const_original$fecha[discrepa])
+idx_error      <- which(const_original$fecha >= fecha_error)
+# Hipótesis en el original: SHCP1[2011-07 + k] = SHCP2[1993-07 + k]
+idx_origen     <- which(const_original$fecha == as.Date("1993-07-01")) + seq_along(idx_error) - 1
+hipotesis_confirmada <- isTRUE(all.equal(const_original$SHCP1[idx_error], const_original$SHCP2[idx_origen]))
 
-identidad <- const %>%
-  transmute(fecha, SHCP1,
-            suma_componentes = SHCP2 + SHCP5 + SHCP6 + SHCP7 + SHCP8 + SHCP9,
-            fuente_total     = fuentes_ancho$`SHCP REAL!B`[match(fecha, fuentes_ancho$fecha)],
-            dif_identidad    = SHCP1 - suma_componentes,
-            energetico_ok    = abs(SHCP2 - (SHCP3 + SHCP4)) < 1e-3)
-
+dif_identidad <- function(d) d$SHCP1 - (d$SHCP2 + d$SHCP5 + d$SHCP6 + d$SHCP7 + d$SHCP8 + d$SHCP9)
 tibble(
-  primera_fecha_erronea = fecha_error,
-  meses_afectados       = length(idx_error),
-  hipotesis_desfase_216_meses = hipotesis_confirmada,
-  max_dif_identidad_antes   = max(abs(identidad$dif_identidad[identidad$fecha <  fecha_error])),
-  max_dif_identidad_despues = max(abs(identidad$dif_identidad[identidad$fecha >= fecha_error])),
-  total_fuente_igual_suma   = max(abs(identidad$fuente_total - identidad$suma_componentes)) < 0.01,
-  identidad_energetico      = all(identidad$energetico_ok)
-) %>% tabla("Diagnóstico del error en SHCP1")
+  primera_fecha_erronea_original = fecha_error,
+  meses_afectados                = length(idx_error),
+  hipotesis_desfase_216_meses    = hipotesis_confirmada,
+  max_dif_identidad_original     = max(abs(dif_identidad(const_original))),
+  max_dif_identidad_corregido    = max(abs(dif_identidad(const))),
+  corregido_igual_a_fuente       = isTRUE(all.equal(const$SHCP1, total_fuente)),
+  identidad_energetico           = all(abs(const$SHCP2 - (const$SHCP3 + const$SHCP4)) < 1e-3)
+) %>% tabla("Diagnóstico del error en SHCP1 y verificación de la corrección")
+stopifnot(hipotesis_confirmada, isTRUE(all.equal(const$SHCP1, total_fuente)),
+          max(abs(dif_identidad(const))) < 0.01)
 
-identidad %>%
-  select(fecha, `SHCP1 (pestaña)` = SHCP1, `Total en SHCP REAL` = fuente_total) %>%
+tibble(fecha = const$fecha, `SHCP1 en el libro original` = const_original$SHCP1,
+       `SHCP1 corregida (= total de SHCP REAL)` = const$SHCP1) %>%
   pivot_longer(-fecha) %>%
   ggplot(aes(fecha, value / 1000, color = name)) +
   geom_line(linewidth = 0.5) +
   geom_vline(xintercept = fecha_error, color = "red", linetype = "dashed") +
-  scale_color_manual(values = c("#C0392B", "grey30")) +
-  labs(title = "SHCP1 en la pestaña CONST frente al total de su hoja fuente",
-       subtitle = "A partir de 2011-07 la pestaña copia otra serie con un desfase de 216 meses",
+  scale_color_manual(values = c("grey30", "#C0392B")) +
+  labs(title = "SHCP1: libro original frente a libro corregido",
+       subtitle = "Desde 2011-07 el original copiaba otra serie con un desfase de 216 meses",
        x = NULL, y = "Miles de millones de pesos de 2018", color = NULL)
 ```
 
-<div class="alerta">
-**Problema confirmado (gravedad alta).** Desde `r format(fecha_error, "%Y-%m")` la columna `SHCP1` de `CONST` no es la inversión física total: es la inversión energética de 18 años antes (desfase de 216 meses). Afecta `r length(idx_error)` meses, incluido todo el periodo de evaluación. Usarla así introduciría un quiebre artificial y una relación espuria. **Corrección propuesta (pendiente de validación):** tomar el total directamente de `'SHCP REAL'!B`, que coincide con la suma de componentes (diferencia máxima < 0.01). La corrección no es una imputación: el dato correcto está en el libro. La identidad energético = hidrocarburos + eléctrico sí se cumple en todo el periodo.
+<div class="interpretacion">
+**Problema confirmado y corregido.** En el libro original, desde `r format(fecha_error, "%Y-%m")`, la columna `SHCP1` no era la inversión física total: era la inversión energética de 18 años antes (desfase de 216 meses), en `r length(idx_error)` meses. En el libro corregido, `SHCP1` es idéntica al total de `'SHCP REAL'!B` y la identidad total = suma de componentes se cumple en todo el periodo (diferencia máxima < 0.01). No es una imputación: el dato correcto ya estaba en el libro.
 </div>
 
 ### Verificación de las series construidas dentro del libro
@@ -823,12 +931,11 @@ exp_tot <- f_aux("EXPORT!B", manuf$fecha); exp_aut <- f_aux("EXPORT!C", manuf$fe
 tibble(
   verificacion = c("EXPORT_AUT = exportaciones automotrices (miles USD) × TC / INPC × 100",
                    "EXPORT_SNAUT = (total − automotrices) × TC / INPC × 100",
-                   "SHCP (real) = SHCP (nominal) / INPC × 100  [total, 1993-2011-06]"),
+                   "SHCP1 (real, corregida) = SHCP (nominal) / INPC × 100"),
   max_dif_relativa = c(
     max(abs(manuf$EXPORT_AUT / (exp_aut * tc_m / inpc_m * 100) - 1), na.rm = TRUE),
     max(abs(manuf$EXPORT_SNAUT / ((exp_tot - exp_aut) * tc_m / inpc_m * 100) - 1), na.rm = TRUE),
-    max(abs(const$SHCP1[const$fecha < fecha_error] /
-              (f_aux("SHCP!B", const$fecha) / f_aux("INPC!B", const$fecha) * 100)[const$fecha < fecha_error] - 1),
+    max(abs(const$SHCP1 / (f_aux("SHCP!B", const$fecha) / f_aux("INPC!B", const$fecha) * 100) - 1),
         na.rm = TRUE))
 ) %>% tabla("Construcción de las series deflactadas en el libro", digitos = 10)
 ```
@@ -868,9 +975,9 @@ historia_extra %>%
 ```
 
 <div class="interpretacion">
-El hallazgo más relevante es **electricidad**: la pestaña `ELEC` empieza en julio de 1997 (probablemente porque las series del IMSS empiezan ahí), pero el objetivo (`IMAI!D`) y los siete índices `CFE` existen desde enero de 1993, y el INPP de electricidad desde enero de 1994. Se están perdiendo **54 meses** de historia del objetivo, justamente lo que el planteamiento pide evitar.
+En el libro original, el caso más relevante era **electricidad**: la pestaña `ELEC` empezaba en julio de 1997 (probablemente porque las series del IMSS empiezan ahí), aunque el objetivo (`IMAI!D`) y los siete índices `CFE` existen desde enero de 1993 y el INPP eléctrico desde enero de 1994. Se perdían 54 meses de historia del objetivo. Con la corrección aprobada, `ELEC` ya no aparece en esta tabla.
 
-Otros dos casos son menores. `USA_PROD` (desde 1986) y `AUTOS` (desde 1991) tienen historia previa a 1993 en la fuente. Esto permitiría calcular su variación anual desde enero de 1993 y disponer de sus rezagos desde el primer dato de $g_t$ (enero de 1994).
+Quedan dos casos menores al inicio de la muestra. `USA_PROD` (desde 1986) y `AUTOS` (desde 1991) tienen historia previa a 1993 en la fuente. Esto permitiría calcular su variación anual desde enero de 1993 y disponer de sus rezagos desde el primer dato de $g_t$ (enero de 1994).
 
 Al **final**, las hojas fuente de `TC`, EMOE (manufacturas y construcción) y EMAER ya tienen octubre de 2026, un mes más que las pestañas sectoriales. Ese mes no se usa para pronosticar septiembre. Pero algunas preguntas de las encuestas de octubre se refieren al mes anterior, de modo que podrían contener información sobre septiembre. Esto se valorará en la entrega 3, porque implica supuestos sobre fechas de publicación.
 </div>
@@ -1270,7 +1377,7 @@ Los atípicos se concentran en pocos episodios:
 
 - **Construcción:** la crisis de 1995–1996, la pandemia (caída de −41% en abril de 2020 y rebote por efecto base de +55% en abril de 2021) y octubre de 2023 (+29%).
 - **Manufacturas:** 1995, la recesión de 2009 y la pandemia. También abril de 1997 y marzo de 1998, que reflejan muy probablemente el **efecto calendario de la Semana Santa** (cae en marzo o abril según el año) sobre una variación anual sin ajuste.
-- **Electricidad:** no coinciden con los ciclos de los demás sectores. Son los crecimientos de 25–35% de 2002 y 2004 y las caídas de 25–29% de 2021.
+- **Electricidad:** no coinciden con los ciclos de los demás sectores. Son crecimientos de 25–35% en 1995, 2002 y 2004 y caídas de 25–29% en 2021. Que la serie creciera alrededor de 28% en plena crisis de 1995 refuerza que mide algo distinto de la generación física (ver la sección de divergencia).
 - **Minería:** sólo el huracán Roxanne (octubre de 1995) y su efecto base un año después. El periodo COVID tiene errores de pronóstico de un orden de magnitud mayor que los normales, así que en la evaluación conviene reportar métricas con y sin 2020–2021 y usar pruebas robustas, en lugar de eliminar observaciones.
 </div>
 
@@ -1323,6 +1430,7 @@ interpretaciones_conocidas <- tribble(
   "LNPP_MANUF",   "1995-01-01", "1995-04-01", "Inflación tras la devaluación de 1995",
   "LNPP_CONS",    "1995-01-01", "1998-01-01", "Inflación tras la devaluación de 1995",
   "INPP1",        "1995-01-01", "1995-01-01", "Inflación tras la devaluación de 1995",
+  "INPP",         "1995-01-01", "1995-12-01", "Inflación tras la devaluación de 1995",
   "INPP",         "2001-01-01", "2001-01-01", "Por revisar (posible ajuste de tarifas de energía)",
   "ENEC_PROD",    "2022-12-01", "2023-04-01", "Ingresos ENEC muy volátiles en 2022-2023 (por revisar)",
   "MANUF",        "2020-04-01", "2020-04-01", "Cierre de actividades no esenciales (COVID-19)",
@@ -1381,6 +1489,13 @@ quiebres <- objetivos_g %>% group_by(hoja) %>% group_map(function(d, k) {
 })
 quiebres_fechas    <- map_dfr(quiebres, "fechas")
 quiebres_segmentos <- map_dfr(quiebres, "segmentos")
+# Texto para la interpretación (se genera a partir de la tabla, no se escribe a mano).
+texto_quiebres <- quiebres_segmentos %>%
+  mutate(segmento = sprintf("%+.1f%% (%s a %s)", media, format(desde, "%Y-%m"), format(hasta, "%Y-%m"))) %>%
+  group_by(hoja) %>%
+  summarise(texto = paste0("- **", NOMBRES_SECTOR[first(hoja)], ":** ",
+                           paste(head(segmento, -1), collapse = ", "), " y ", last(segmento), "."), .groups = "drop") %>%
+  arrange(match(hoja, HOJAS_SECTOR)) %>% pull(texto) %>% paste(collapse = "\n")
 tabla(quiebres_fechas, "Quiebres en la media de la variación anual (Bai–Perron, BIC)")
 tabla(quiebres_segmentos, "Medias por segmento", digitos = 2)
 ```
@@ -1406,10 +1521,7 @@ ggplot(moviles, aes(fecha)) +
 <div class="interpretacion">
 Hay evidencia de cambios de régimen en la media y, sobre todo, en la **volatilidad**. En los cuatro sectores la volatilidad de los noventa (y la de 2020–2021) es muy superior a la de 2010–2019. Las medias por segmento (Bai–Perron) son:
 
-- **Manufacturas:** +5.2% (1994–2000), −0.8% (2001–2009) y +2.2% desde finales de 2009.
-- **Construcción:** +2.1% hasta 2016, −4.6% entre 2016 y 2021 y +6.4% desde 2021.
-- **Electricidad:** +5.2%, +12.7% (2002–2007), +2.8% (2007–2018) y −4.7% desde finales de 2018.
-- **Minería:** +2.5% hasta 2004, −0.6%, −5.9% (2014–2019) y −0.7% desde 2019.
+`r texto_quiebres`
 
 Las fechas exactas no deben tomarse literalmente, por la autocorrelación, pero los regímenes son económicamente reconocibles. **Implicación para la modelación:** las ventanas de estimación muy largas pueden incorporar dinámicas que ya no son representativas. La comparación entre ventanas expansivas y móviles (entrega 4) es necesaria, no opcional. Por la misma razón, la evaluación debe reportarse por subperiodos.
 </div>
@@ -1439,7 +1551,7 @@ ggplot(filter(elec_fuente, !is.na(movil_12)), aes(fecha, movil_12, color = serie
                                 "Generación eléctrica (CFE1)" = "#2563A8",
                                 "Ventas totales (CFE2)" = "#7FB3D5")) +
   labs(title = "IMAI de electricidad frente a generación y ventas de electricidad",
-       subtitle = "Promedio móvil de 12 meses (hacia atrás), 2018 = 100, escala logarítmica · Punteada: inicio de la pestaña ELEC",
+       subtitle = "Promedio móvil de 12 meses (hacia atrás), 2018 = 100, escala logarítmica · Punteada: inicio de ELEC en el libro original",
        x = NULL, y = "Índice (2018 = 100)", color = NULL)
 
 elec_fuente %>% mutate(anio = year(fecha)) %>%
@@ -1506,9 +1618,9 @@ cambios_metodologia <- tribble(
   "CFE1–7, GENERACION, ELEC_GRANDES", "Índices de volumen de generación y ventas (base 1993); la reforma energética abrió la generación a privados",
   "Hoja CFE (Banxico)", "Verificar cobertura: si sólo mide a CFE, su relación con el IMAI eléctrico pudo cambiar después de 2014",
   "EXPORT_AUT, EXPORT_SNAUT", "Construidas en el libro: USD × TC / INPC", "Fórmulas verificadas", "Mezclan volumen, precios en dólares y tipo de cambio",
-  "SHCP1", "Error de fórmula desde 2011-07", "Desfase de 216 meses verificado", "Corregir con 'SHCP REAL'!B antes de cualquier uso",
+  "SHCP1", "Error de fórmula desde 2011-07 en el libro original", "Desfase de 216 meses verificado", "Corregido en base_imai_corregida.xlsx",
   "USA_PROD", "La hoja indica la publicación G.17 del 16-abr-2026, pero contiene datos hasta 2026-09", "Encabezado de la hoja USA", "Verificar la fecha de descarga y la versión de los datos",
-  "ELEC (pestaña completa)", "Empieza en 1997-07 aunque el objetivo y CFE existen desde 1993-01", "Hojas IMAI y CFE", "Se pierden 54 meses de historia del objetivo",
+  "ELEC (pestaña completa)", "En el libro original empezaba en 1997-07 aunque el objetivo y CFE existen desde 1993-01", "Hojas IMAI y CFE", "Corregido: se recuperan 54 meses de historia del objetivo",
   "ELEC frente a CFE1–7", "El IMAI eléctrico y los índices físicos divergen (2002–2007 y desde 2019)",
   "Sección de cambios estructurales", "Relación inestable entre el objetivo y sus predictores naturales"
 )
@@ -1684,66 +1796,61 @@ Por eso la estrategia de información (entrega 3) deberá comparar al menos: (i)
 
 ```{r problemas}
 problemas <- tribble(
-  ~id, ~gravedad, ~problema, ~variables, ~implicacion, ~propuesta,
-  1, "Alta", "Error de fórmula: SHCP1 copia la inversión energética de 216 meses antes",
+  ~gravedad, ~problema, ~variables, ~implicacion, ~propuesta, ~estado,
+  "Alta", "Error de fórmula en el libro original: SHCP1 copiaba la inversión energética de 216 meses antes",
   "CONST: SHCP1", sprintf("%d meses erróneos desde %s", length(idx_error), format(fecha_error, "%Y-%m")),
-  "Reemplazar por 'SHCP REAL'!B (dato correcto que ya está en el libro)",
-  2, "Alta", "La pestaña ELEC empieza en 1997-07 aunque el objetivo y CFE existen desde 1993-01",
-  "ELEC: objetivo, CFE1–7, INPP", "Se pierden 54 meses de historia del objetivo",
-  "Reconstruir el panel ELEC desde 1993-01 con las hojas fuente; IMSS y ENOE quedan como variables de historia más corta",
-  3, "Alta", "Divergencia entre el IMAI de electricidad y los índices físicos de generación y ventas",
+  "Reemplazar por 'SHCP REAL'!B", "Corregido (decisión 1)",
+  "Alta", "En el libro original la pestaña ELEC empezaba en 1997-07 aunque el objetivo y CFE existen desde 1993-01",
+  "ELEC: objetivo, CFE1–7, INPP", "Se perdían 54 meses de historia del objetivo",
+  "Reconstruir ELEC desde 1993-01 con las hojas fuente", "Corregido (decisión 2)",
+  "Alta", "Divergencia entre el IMAI de electricidad y los índices físicos de generación y ventas",
   "ELEC: objetivo, CFE1–7", "Desde 2019 el IMAI cae ~1/3 mientras la generación sube; correlaciones bajas e inestables",
-  "Investigar la cobertura de cada indicador; permitir parámetros cambiantes; exigir que superen al benchmark AR",
-  3, "Alta", "Heterogeneidad extrema de historias en manufacturas (1993 / 2004 / 2018)",
+  "Permitir parámetros cambiantes; exigir que superen al benchmark AR",
+  "Abierto: causa desconocida (decisión 7)",
+  "Alta", "Heterogeneidad extrema de historias en manufacturas (1993 / 2004 / 2018)",
   "MANUF: EMOE (2004), EMAER (2018)", "Casos completos con EMAER: ~90 observaciones",
-  "Estrategia por bloques, modelos de panel desbalanceado y evaluación explícita de la contribución marginal (entrega 3)",
-  4, "Media", "EMAER: encuesta nueva desde 2018; existe la serie anterior enlazada en EMAER HIST (2003–2017)",
-  "MANUF: EMAER1–11, 15–17", "Posible extensión de 15 años con datos reales, pero con quiebre metodológico",
-  "Evaluar el empalme (en balances) fuera de muestra; distinguir el tramo anterior a 2018 como 'encuesta previa'",
-  5, "Media", "Etiquetas que no corresponden al contenido",
+  "Estrategia por bloques, modelos de panel desbalanceado y contribución marginal", "Entrega 3",
+  "Media", "EMAER: encuesta nueva desde 2018; la serie anterior está enlazada en EMAER HIST (2003–2017)",
+  "MANUF: EMAER1–11, 15–17", "Posible extensión de 15 años con datos reales, con quiebre metodológico",
+  "Empalmar en balances y evaluar fuera de muestra", "Evaluado en la sección 4",
+  "Media", "Etiquetas que no corresponden al contenido",
   "CONST: ENEC_GASTO, ENEC_ING, ENEC_PROD, ENEC_OTR; ELEC/MIN: ENOE", "Riesgo de interpretación económica errónea",
-  "Usar las descripciones del diccionario; renombrar sólo con su aprobación",
-  6, "Media", "Dependencias lineales exactas",
+  "Usar las descripciones del diccionario", "Documentado",
+  "Media", "Dependencias lineales exactas",
   "MANUF: tríos EMAER; CONST: SHCP1 = suma de componentes", "Multicolinealidad perfecta si entran juntas",
-  "Usar balances (Aumente − Disminuya) y el total o los componentes, no ambos",
-  7, "Media", "Quiebres de cobertura en el empleo IMSS (LyFC 2009; subcontratación 2021)",
+  "Balances EMAER; total o componentes SHCP, no ambos", "Tratado en la sección 3 (decisión 5)",
+  "Media", "Quiebres de cobertura en el empleo IMSS (LyFC 2009; subcontratación 2021)",
   "IMSS_ELEC_P, IMSS_EV, IMSS_*_E", "Saltos de nivel que contaminan 12 meses de variación anual",
-  "Evaluar totales (permanentes + eventuales) y la estabilidad fuera de muestra",
-  8, "Media", "ENOE: hueco interno 2020-05/06 y cambio de encuesta",
+  "Evaluar totales y la estabilidad fuera de muestra", "Entrega 3",
+  "Media", "ENOE: hueco interno 2020-05/06 y cambio de encuesta",
   "ELEC/MIN: ENOE", "La diferencia anual también falta en 2021-05/06",
-  "Evaluar la exclusión, modelos con faltantes o imputación sólo con información pasada",
-  9, "Media", "Ausencia de vintages (datos revisados)", "Todas", "Evaluación pseudo-fuera-de-muestra algo optimista",
-  "Documentar la limitación; replicar el patrón de publicación actual (borde irregular)",
-  10, "Media", "Exportaciones 'reales' = USD × TC / INPC", "MANUF: EXPORT_AUT, EXPORT_SNAUT",
-  "Mezclan volumen, precios en dólares y tipo de cambio", "Comparar con exportaciones en dólares (hoja EXPORT) en la entrega 2",
-  11, "Baja", "Valores aislados sospechosos en la fuente", "ELEC: CFE4 (2006-01), CFE6 (2000-10)",
-  "Atípicos de un mes que afectan 2 meses de variación anual", "Marcar como sospechosos; evaluar su efecto sin modificarlos",
-  12, "Baja", "Flujos fiscales con ceros y negativos", "CONST: SHCP4–SHCP8",
-  "Variación porcentual anual mal definida", "Sumas móviles de 3 o 12 meses (sólo hacia atrás) antes de la variación anual",
-  13, "Baja", "Unidades mal rotuladas en hojas fuente", "PETROLEO; EXPORT REAL",
-  "No afecta a la variación anual", "Corregir la documentación",
-  14, "Baja", "Encabezado de USA con fecha de publicación anterior a los datos", "MANUF: USA_PROD",
-  "Posible mezcla de versiones", "Verificar la descarga",
-  15, "Informativa", "Borde irregular: ENEC llega a agosto; el resto a septiembre", "CONST: ENEC_*",
+  "Exclusión, modelos con faltantes o imputación sólo con información pasada", "Entrega 3",
+  "Media", "Ausencia de vintages (datos revisados)", "Todas", "Evaluación pseudo-fuera-de-muestra algo optimista",
+  "Replicar el patrón de publicación actual", "Limitación documentada; regla de disponibilidad (decisión 3)",
+  "Media", "Exportaciones 'reales' = USD × TC / INPC", "MANUF: EXPORT_AUT, EXPORT_SNAUT",
+  "Mezclan volumen, precios en dólares y tipo de cambio", "—",
+  "Se conservan en pesos constantes (decisión 6)",
+  "Baja", "Valores aislados sospechosos en la fuente", "ELEC: CFE4 (2006-01), CFE6 (2000-10)",
+  "Atípicos de un mes que afectan 2 meses de variación anual", "Marcar como sospechosos", "Se mantienen y se marcan",
+  "Baja", "Flujos fiscales con ceros y negativos", "CONST: SHCP4–SHCP8",
+  "Variación porcentual mensual mal definida", "Variación anual de sumas de 12 meses (hacia atrás)",
+  "Tratado en la sección 3",
+  "Baja", "Unidades mal rotuladas en hojas fuente", "PETROLEO; EXPORT REAL",
+  "No afecta a la variación anual", "Corregir la documentación", "Documentado",
+  "Baja", "Encabezado de USA con fecha de publicación anterior a los datos", "MANUF: USA_PROD",
+  "Posible mezcla de versiones", "Verificar la descarga", "Documentado",
+  "Informativa", "Borde irregular: ENEC llega a agosto; el resto a septiembre", "CONST: ENEC_*",
   "ENEC sólo es utilizable con rezago ≥ 1", "Regla de disponibilidad basada en el desfase observado",
-  16, "Media", "Las muestras cortas están dominadas por 2020–2021", "MANUF: EMAER; CONST: EMOE_CONST",
+  "Tratado en la sección 3 (decisión 3)",
+  "Media", "Las muestras cortas están dominadas por 2020–2021", "MANUF: EMAER; CONST: EMOE_CONST",
   "Las correlaciones de muestra completa exageran su relación en tiempos normales",
-  "Evaluar fuera de muestra con y sin el periodo COVID, y en la ventana reciente (2022+)"
+  "Evaluar con y sin el periodo COVID, y en la ventana reciente", "Aplicado en la sección 4; se mantiene en la evaluación"
 ) %>%
-  mutate(id = row_number())
-tabla(problemas, "Problemas identificados (los tratamientos están pendientes de validación)", altura = "560px")
+  mutate(id = row_number(), .before = 1)
+tabla(problemas, "Problemas identificados y estado al cierre de la entrega 2", altura = "560px")
 ```
 
-## Decisiones que requieren su validación antes de la entrega 2
-
-1. **Corrección de `SHCP1`** con `'SHCP REAL'!B` (o con la suma de sus componentes, que es idéntica).
-2. **Extensión de la pestaña `ELEC` a enero de 1993**, tomando el objetivo, `CFE1`–`CFE7` e `INPP` de sus hojas fuente; las variables IMSS y ENOE conservarían su inicio real (1997-07 y 2005-01).
-3. **Supuesto de disponibilidad:** replicar en cada fecha histórica el desfase observado hoy (desfase +1 para casi todos los predictores; 0 para la ENEC), reconociendo que no hay vintages.
-4. **Ventanas provisionales de evaluación:** principal desde 2012-01 y reciente desde 2022-01, con resultados separados para el periodo COVID (2020-03 a 2021-06).
-5. **Tratamiento de las encuestas:** usar balances (Aumente − Disminuya) en lugar de los tres porcentajes de cada trío EMAER, y evaluar el empalme con `EMAER HIST`.
-6. **Exportaciones:** comparar la versión en pesos constantes con la versión en dólares.
-7. **Valores sospechosos** (`CFE4` 2006-01, `CFE6` 2000-10): mantenerlos, marcarlos y evaluar su efecto.
-8. **Electricidad:** si tiene documentación sobre la cobertura de los índices de generación y ventas de Banxico (sólo CFE o sistema nacional) o sobre la medición del IMAI eléctrico, conviene incorporarla antes de modelar el sector. Si no, se tratará como un cambio de relación de causa desconocida.
+Las decisiones sobre estos problemas se validaron al cierre de la entrega 1 y se registran en la sección 1 ("Decisiones validadas y archivo corregido").
 
 ## Resultados intermedios guardados
 
@@ -1781,7 +1888,941 @@ tibble(archivo = archivos_guardados, bytes = file.size(archivos_guardados)) %>%
   tabla("Archivos de resultados intermedios")
 ```
 
-## Información de la sesión
+
+# Construcción de variables (entrega 2)
+
+Esta sección convierte los datos del libro corregido en las variables que usarán todos los modelos. Aplica cinco reglas:
+
+1. **La variable dependiente es siempre la variación anual** $g_t = 100\,(Y_t / Y_{t-12} - 1)$.
+2. **Cada predictor recibe la representación que corresponde a su naturaleza económica.** Para índices, cantidades, empleo y precios es la variación anual. Los indicadores de difusión y los porcentajes se usan en nivel y en diferencia anual. De las encuestas de respuestas se usa el balance. Los flujos fiscales se usan como variación anual de su acumulado de 12 meses.
+3. **Todas las operaciones miran sólo hacia atrás:** rezagos y ventanas móviles alineadas a la derecha. Ninguna transformación usa información posterior a la fecha de la observación, y esto se verifica explícitamente.
+4. **No se aplica ninguna transformación estacional:** ni desestacionalización, ni diferencias estacionales, ni dummies mensuales.
+5. **No se selecciona nada todavía.** Aquí se construyen las representaciones base y el catálogo de transformaciones candidatas. La selección se hará dentro de cada ventana de entrenamiento en las entregas 3 a 5.
+
+## Variable objetivo: variación anual
+
+<div class="verificar">
+**Qué hace:** calcula $g_t$ para los cuatro sectores con el libro corregido. La verifica de dos maneras: (i) con un cálculo independiente que busca $Y_{t-12}$ **por fecha** y no por posición, y (ii) comprobando que $g_t$ empiece exactamente 12 meses después del primer nivel y que no tenga huecos. **Qué verificar:** las fechas inicial y final de $g_t$ en cada sector; electricidad debe empezar ahora en enero de 1994.
+</div>
+
+```{r objetivo-g}
+# Variación anual: sólo se calcula si ambos niveles existen y son positivos.
+variacion_anual <- function(x, rezago = REZAGO_ANUAL) {
+  x_l <- dplyr::lag(x, rezago)
+  ifelse(!is.na(x) & !is.na(x_l) & x > 0 & x_l > 0, 100 * (x / x_l - 1), NA_real_)
+}
+
+panel_objetivo <- imap_dfr(datos_crudos, function(d, h)
+  tibble(hoja = h, fecha = d$fecha, nivel = d[[h]], g = variacion_anual(d[[h]])))
+
+# (i) Cálculo independiente: Y_{t-12} buscado por fecha.
+comprobacion_g <- panel_objetivo %>%
+  left_join(transmute(panel_objetivo, hoja, fecha = fecha %m+% months(12), nivel_12 = nivel),
+            by = c("hoja", "fecha")) %>%
+  mutate(g_por_fecha = 100 * (nivel / nivel_12 - 1))
+stopifnot(isTRUE(all.equal(comprobacion_g$g, comprobacion_g$g_por_fecha)))
+
+# (ii) Fechas, rezago inicial y huecos.
+verificacion_g <- panel_objetivo %>% group_by(hoja) %>%
+  summarise(primer_nivel = min(fecha[!is.na(nivel)]), ultimo_nivel = max(fecha[!is.na(nivel)]),
+            primera_g = min(fecha[!is.na(g)]), ultima_g = max(fecha[!is.na(g)]), n_g = sum(!is.na(g)),
+            huecos_internos = { i <- which(!is.na(g)); sum(is.na(g[min(i):max(i)])) }, .groups = "drop") %>%
+  mutate(meses_entre_nivel_y_g = indice_mes(primera_g) - indice_mes(primer_nivel))
+tabla(verificacion_g, "Verificación de la variable objetivo g_t")
+stopifnot(all(verificacion_g$meses_entre_nivel_y_g == REZAGO_ANUAL),
+          all(verificacion_g$huecos_internos == 0),
+          all(verificacion_g$ultima_g == verificacion_g$ultimo_nivel))
+```
+
+```{r resumen-g}
+resumen_g <- panel_objetivo %>% filter(!is.na(g)) %>% group_by(hoja) %>%
+  summarise(n = n(), media = mean(g), de = sd(g),
+            minimo = min(g), fecha_minimo = fecha[which.min(g)],
+            maximo = max(g), fecha_maximo = fecha[which.max(g)],
+            ultimo_mes = max(fecha), ultimo_valor = g[which.max(fecha)],
+            media_ultimos_12 = mean(tail(g, 12)), .groups = "drop") %>%
+  mutate(sector = NOMBRES_SECTOR[hoja], .after = hoja)
+tabla(resumen_g, "Variación anual del objetivo por sector (%)")
+```
+
+```{r grafica-g, fig.height = 6.5}
+ggplot(filter(panel_objetivo, !is.na(g)), aes(fecha, g, color = hoja)) +
+  annotate("rect", xmin = PERIODO_COVID[1], xmax = PERIODO_COVID[2], ymin = -Inf, ymax = Inf,
+           alpha = 0.10, fill = "red") +
+  geom_hline(yintercept = 0, color = "grey50") +
+  geom_line(linewidth = 0.45) + capas_evaluacion() +
+  facet_wrap(~ facet_hoja(hoja), scales = "free_y", ncol = 2) +
+  scale_color_manual(values = COLORES_SECTOR, guide = "none") +
+  labs(title = "Variable objetivo: variación anual del IMAI por sector",
+       subtitle = "Sombreado: COVID (2020-03 a 2021-06) · Discontinua: 2012-01 · Punteada: 2022-01",
+       x = NULL, y = "%")
+```
+
+```{r grafica-g-reciente, fig.height = 4}
+panel_objetivo %>% filter(!is.na(g), fecha >= as.Date("2022-01-01")) %>%
+  ggplot(aes(fecha, g, color = hoja)) +
+  geom_hline(yintercept = 0, color = "grey50") + geom_line(linewidth = 0.7) + geom_point(size = 0.9) +
+  scale_color_manual(values = COLORES_SECTOR, labels = NOMBRES_SECTOR) +
+  labs(title = "Variación anual del objetivo en la ventana reciente (2022-01 en adelante)",
+       x = NULL, y = "%", color = NULL)
+```
+
+<div class="interpretacion">
+La variable objetivo de los cuatro sectores comienza en enero de 1994 y termina en `r mes_es(max(resumen_g$ultimo_mes))`, sin huecos. Electricidad gana 54 observaciones respecto al libro original gracias a la corrección. El último dato observado de la variación anual es `r paste0(resumen_g$sector, " ", sprintf("%+.2f%%", resumen_g$ultimo_valor), collapse = "; ")`. Estos son los valores que usará el benchmark "último dato observado" para pronosticar septiembre de 2026.
+</div>
+
+## Transformaciones de los predictores
+
+### Reglas por tipo de variable
+
+<div class="verificar">
+**Qué hace:** fija, para cada tipo de variable, las representaciones base que se construyen y cuál se considera la principal (la que se grafica). Incorpora las decisiones validadas: exportaciones en pesos constantes (decisión 6) y balances para la EMAER (decisión 5). **Qué verificar:** la justificación de cada excepción a la variación anual.
+</div>
+
+```{r reglas-transformacion}
+reglas_transformacion <- tribble(
+  ~tipo,          ~metodos,                       ~principal,      ~justificacion,
+  "volumen",      "var_anual",                    "var_anual",     "Índice de volumen o cantidad física con tendencia: variación anual (%)",
+  "empleo",       "var_anual",                    "var_anual",     "Puestos de trabajo: variación anual (%)",
+  "valor_real",   "var_anual",                    "var_anual",     "Valor en pesos constantes: variación anual (%); se conserva la versión del libro (decisión 6)",
+  "precio",       "var_anual",                    "var_anual",     "Índice de precios: inflación anual (%)",
+  "tipo_cambio",  "var_anual",                    "var_anual",     "Pesos por dólar: depreciación anual (%)",
+  "flujo_fiscal", "var_anual_s12",                "var_anual_s12", "Flujo mensual muy volátil (picos de diciembre): variación anual del acumulado de 12 meses",
+  "flujo_signo",  "var_anual_s12",                "var_anual_s12", "Flujo con ceros o negativos: la variación mensual no está definida; la del acumulado de 12 meses sí",
+  "difusion",     "nivel|dif_anual",              "dif_anual",     "Indicador de opinión en puntos (umbral 50): nivel y diferencia anual; no variación %",
+  "porcentaje",   "nivel|dif_anual",              "dif_anual",     "Porcentaje (uso de capacidad, participación en el empleo): nivel y diferencia anual (pp)",
+  "dias",         "dif_anual",                    "dif_anual",     "Días laborados: la diferencia anual aproxima el efecto calendario sobre g_t",
+  "balance",      "nivel|dif_anual|prom12",       "prom12",        "Balance Aumente − Disminuya de preguntas mes contra mes: nivel, diferencia anual y promedio de 12 meses (acumula los cambios mensuales, comparable con una variación anual)"
+)
+SUFIJOS <- c(nivel = "niv", var_anual = "va", dif_anual = "d12", var_anual_s12 = "va_s12",
+             var_anual_s3 = "va_s3", prom12 = "p12")
+tabla(reglas_transformacion, "Representaciones base por tipo de variable")
+```
+
+### Funciones de transformación (sólo hacia atrás)
+
+```{r funciones-transformacion}
+# Ventanas móviles alineadas a la derecha: el valor en t sólo usa t, t-1, ..., t-k+1.
+# Si falta algún mes de la ventana el resultado es NA (no se rellena nada).
+suma_movil     <- function(x, k) zoo::rollapplyr(x, k, sum,  fill = NA)
+promedio_movil <- function(x, k) zoo::rollapplyr(x, k, mean, fill = NA)
+
+representar <- function(x, metodo) {
+  switch(metodo,
+         nivel         = x,
+         var_anual     = variacion_anual(x),
+         dif_anual     = x - dplyr::lag(x, REZAGO_ANUAL),
+         var_anual_s12 = variacion_anual(suma_movil(x, 12)),
+         var_anual_s3  = variacion_anual(suma_movil(x, 3)),
+         prom12        = promedio_movil(x, 12),
+         stop("Método desconocido: ", metodo))
+}
+```
+
+### Balances de la EMAER (decisión 5)
+
+<div class="verificar">
+**Qué hace:** sustituye cada trío de respuestas EMAER (Aumente / Sin cambio / Disminuya) por su balance **Aumente − Disminuya**. **Por qué:** las tres categorías suman 100, así que juntas generan multicolinealidad perfecta; el balance resume la dirección neta del cambio y es la medida estándar de las encuestas cualitativas. **Qué verificar:** los ocho balances y su rango (entre −100 y 100).
+</div>
+
+```{r balances-emaer}
+preguntas_emaer <- tibble(
+  pregunta  = preg_emaer,
+  codigo    = c("PROD", "VENTAS", "INV", "INVVTAS", "TRAB", "RENUNC", "DIFPROD", "DIFADM"),
+  aumente   = paste0("EMAER", seq(3, 24, 3)),
+  disminuya = paste0("EMAER", seq(5, 26, 3)))
+
+calcular_balances <- function(d, prefijo = "EMAER_B_") {
+  out <- tibble(fecha = d$fecha)
+  for (i in seq_len(nrow(preguntas_emaer)))
+    out[[paste0(prefijo, preguntas_emaer$codigo[i])]] <-
+      d[[preguntas_emaer$aumente[i]]] - d[[preguntas_emaer$disminuya[i]]]
+  out
+}
+balances_manuf <- calcular_balances(datos_crudos$MANUF)
+balances_manuf %>% select(-fecha) %>%
+  summarise(across(everything(), list(min = ~ min(.x, na.rm = TRUE), max = ~ max(.x, na.rm = TRUE),
+                                       n = ~ sum(!is.na(.x))))) %>%
+  pivot_longer(everything(), names_to = c("balance", ".value"), names_pattern = "(.*)_(min|max|n)$") %>%
+  left_join(transmute(preguntas_emaer, balance = paste0("EMAER_B_", codigo), pregunta), by = "balance") %>%
+  tabla("Balances EMAER (Aumente − Disminuya), en puntos porcentuales")
+stopifnot(all(abs(as.matrix(balances_manuf[-1])) <= 100, na.rm = TRUE))
+```
+
+### Elección de la acumulación para los flujos fiscales
+
+<div class="verificar">
+**Qué hace:** compara cuántas observaciones válidas tiene cada componente de la inversión pública bajo tres alternativas: variación anual mensual, del acumulado de 3 meses y del acumulado de 12 meses. **Por qué:** con ceros o negativos, la variación porcentual no está definida. La acumulación elegida debe dar una serie completa sin imputar nada. **Qué verificar:** que la alternativa elegida (12 meses) no tenga faltantes internos.
+</div>
+
+```{r flujos-fiscales}
+const <- datos_crudos$CONST
+validez_shcp <- map_dfr(paste0("SHCP", 1:9), function(v) {
+  conteo <- function(z) { i <- which(!is.na(z)); c(n = length(i), huecos = sum(is.na(z[min(i):max(i)]))) }
+  m  <- conteo(representar(const[[v]], "var_anual"))
+  s3 <- conteo(representar(const[[v]], "var_anual_s3"))
+  s12 <- conteo(representar(const[[v]], "var_anual_s12"))
+  tibble(variable = v, descripcion = desc_shcp[as.integer(sub("SHCP", "", v))],
+         mensual_n = m[["n"]], mensual_huecos = m[["huecos"]],
+         acum3_n = s3[["n"]], acum3_huecos = s3[["huecos"]],
+         acum12_n = s12[["n"]], acum12_huecos = s12[["huecos"]])
+})
+tabla(validez_shcp, "Observaciones válidas de la variación anual de la inversión pública según la acumulación")
+stopifnot(all(validez_shcp$acum12_huecos == 0))
+```
+
+<div class="interpretacion">
+La variación anual mensual de la inversión pública tiene huecos en los componentes con ceros o negativos, y el acumulado de 3 meses no los elimina en todos. El acumulado de 12 meses produce series completas en los nueve componentes; por eso es la representación base. Su contrapartida es que reacciona con retraso, porque promedia el último año. La variación del acumulado de 3 meses, más oportuna, queda en el catálogo de transformaciones candidatas para los componentes en que está definida.
+</div>
+
+### Representaciones base por sector
+
+<div class="verificar">
+**Qué hace:** construye, para cada sector, el catálogo de representaciones base (una fila por variable de origen y método) y el panel ancho correspondiente (fecha, $g_t$ y todas las representaciones). Cada representación hereda el desfase de publicación de su variable de origen. **Qué verificar:** el número de representaciones por sector y que ninguna variable quede sin representación.
+</div>
+
+```{r representaciones-base}
+# Variables de origen: todas las de la pestaña salvo el objetivo y las respuestas EMAER
+# individuales, que se sustituyen por sus balances.
+variables_origen <- map_dfr(HOJAS_SECTOR, function(h) {
+  base <- diccionario %>% filter(hoja == h, !tipo %in% c("objetivo", "respuestas")) %>%
+    select(hoja, origen = variable, tipo, descripcion)
+  if (h == "MANUF")
+    base <- bind_rows(base, tibble(hoja = h, origen = paste0("EMAER_B_", preguntas_emaer$codigo),
+                                   tipo = "balance", descripcion = paste("Balance EMAER:", preguntas_emaer$pregunta)))
+  base
+}) %>%
+  left_join(select(reglas_transformacion, tipo, metodos, principal), by = "tipo") %>%
+  # desfase de publicación: el de la variable de origen (los balances heredan el de EMAER3)
+  mutate(variable_borde = ifelse(tipo == "balance", "EMAER3", origen)) %>%
+  left_join(select(borde, hoja, variable_borde = variable, desfase = desfase_meses),
+            by = c("hoja", "variable_borde")) %>%
+  select(-variable_borde)
+stopifnot(!anyNA(variables_origen$metodos), !anyNA(variables_origen$desfase))
+
+datos_origen <- imap(datos_crudos, function(d, h)
+  if (h == "MANUF") left_join(d, balances_manuf, by = "fecha") else d)
+
+catalogo_base <- variables_origen %>%
+  separate_rows(metodos, sep = "\\|") %>% rename(metodo = metodos) %>%
+  mutate(nombre = paste0(origen, "__", SUFIJOS[metodo]), es_principal = metodo == principal) %>%
+  select(-principal)
+
+paneles_base <- map(HOJAS_SECTOR, function(h) {
+  d <- datos_origen[[h]]; cat_h <- filter(catalogo_base, hoja == h)
+  out <- tibble(fecha = d$fecha, g = panel_objetivo$g[panel_objetivo$hoja == h])
+  for (i in seq_len(nrow(cat_h))) out[[cat_h$nombre[i]]] <- representar(d[[cat_h$origen[i]]], cat_h$metodo[i])
+  out
+})
+names(paneles_base) <- HOJAS_SECTOR
+
+# Fechas y observaciones de cada representación
+catalogo_base <- catalogo_base %>%
+  rowwise() %>%
+  mutate(primera_fecha = { z <- paneles_base[[hoja]][[nombre]]; min(paneles_base[[hoja]]$fecha[!is.na(z)]) },
+         ultima_fecha  = { z <- paneles_base[[hoja]][[nombre]]; max(paneles_base[[hoja]]$fecha[!is.na(z)]) },
+         n_obs         = sum(!is.na(paneles_base[[hoja]][[nombre]])),
+         huecos        = { z <- paneles_base[[hoja]][[nombre]]; i <- which(!is.na(z)); sum(is.na(z[min(i):max(i)])) }) %>%
+  ungroup()
+
+catalogo_base %>% count(hoja, metodo) %>%
+  pivot_wider(names_from = metodo, values_from = n, values_fill = 0) %>%
+  left_join(count(catalogo_base, hoja, name = "total_representaciones"), by = "hoja") %>%
+  left_join(count(variables_origen, hoja, name = "variables_origen"), by = "hoja") %>%
+  arrange(match(hoja, HOJAS_SECTOR)) %>%
+  tabla("Representaciones base por sector y método")
+stopifnot(all(catalogo_base$n_obs > 0))
+```
+
+```{r tabla-catalogo}
+catalogo_base %>%
+  transmute(hoja, representacion = nombre, origen, metodo, principal = es_principal, desfase,
+            primera = format(primera_fecha, "%Y-%m"), ultima = format(ultima_fecha, "%Y-%m"), n_obs, huecos) %>%
+  tabla("Catálogo de representaciones base: fechas y observaciones disponibles", altura = "480px")
+
+catalogo_base %>% filter(huecos > 0) %>%
+  select(hoja, nombre, primera_fecha, ultima_fecha, n_obs, huecos) %>%
+  tabla("Representaciones con huecos internos")
+```
+
+<div class="interpretacion">
+Los cuatro sectores quedan con `r count(catalogo_base, hoja) %>% arrange(match(hoja, HOJAS_SECTOR)) %>% { paste0(NOMBRES_SECTOR[.$hoja], " = ", .$n, collapse = ", ") }` representaciones base. Las únicas con huecos internos son las de `ENOE`: los dos meses `ND` de 2020 generan huecos en el nivel y, en la diferencia anual, también en los mismos meses de 2021. No se rellenan; su tratamiento se decidirá en la entrega 3. Las fechas de inicio de cada representación son las de su variable de origen más 12 meses en las transformaciones anuales, lo que determina el inicio efectivo de cada bloque.
+</div>
+
+### Verificación de que las transformaciones no usan información futura
+
+<div class="verificar">
+**Qué hace:** para cuatro orígenes históricos, recalcula todas las representaciones **usando sólo los datos hasta el origen** y las compara con las calculadas con la muestra completa en las fechas anteriores o iguales al origen. **Por qué:** si alguna transformación usara datos posteriores (por ejemplo, una ventana centrada o una normalización con toda la muestra), los valores diferirían. **Qué verificar:** que la diferencia máxima sea exactamente cero.
+</div>
+
+```{r prueba-sin-futuro}
+origenes_prueba <- as.Date(c("2005-06-01", "2012-01-01", "2019-12-01", "2022-01-01"))
+prueba_sin_futuro <- map_dfr(HOJAS_SECTOR, function(h) map_dfr(origenes_prueba, function(o) {
+  d_trunc  <- filter(datos_origen[[h]], fecha <= o)
+  completo <- filter(paneles_base[[h]], fecha <= o)
+  cat_h    <- filter(catalogo_base, hoja == h)
+  difs <- map_dbl(seq_len(nrow(cat_h)), function(i) {
+    a <- representar(d_trunc[[cat_h$origen[i]]], cat_h$metodo[i]); b <- completo[[cat_h$nombre[i]]]
+    if (any(is.na(a) != is.na(b))) return(Inf)
+    if (all(is.na(a))) 0 else max(abs(a - b), na.rm = TRUE)
+  })
+  g_trunc <- variacion_anual(d_trunc[[h]])
+  dif_g <- if (any(is.na(g_trunc) != is.na(completo$g))) Inf else max(abs(g_trunc - completo$g), na.rm = TRUE)
+  tibble(hoja = h, origen = o, representaciones = nrow(cat_h),
+         max_dif_predictores = max(difs), max_dif_objetivo = dif_g)
+}))
+tabla(prueba_sin_futuro, "Recalcular con datos truncados en el origen frente a la muestra completa", digitos = 12)
+stopifnot(all(prueba_sin_futuro$max_dif_predictores == 0), all(prueba_sin_futuro$max_dif_objetivo == 0))
+```
+
+## Regla de disponibilidad de la información (decisión 3)
+
+<div class="verificar">
+**Qué hace:** implementa la regla validada. En un origen $t$, con el objetivo conocido hasta $t$, cada representación se usa sólo hasta $t + \text{desfase}$ de su variable de origen, que es el desfase observado hoy en el borde de la muestra. Se verifica de dos formas: (i) en el último origen (agosto de 2026) la regla reproduce exactamente la información que hoy contiene el archivo, y (ii) en un origen histórico, la última fecha disponible de cada representación es la que dicta su desfase. **Qué verificar:** que las dos comprobaciones pasen.
+</div>
+
+```{r regla-disponibilidad}
+# Conjunto de información disponible en el origen t (objetivo conocido hasta t). Devuelve
+# el panel hasta t + HORIZONTE, con las celdas no disponibles en t como NA.
+informacion_disponible <- function(h, origen) {
+  p <- paneles_base[[h]]; cat_h <- filter(catalogo_base, hoja == h)
+  p$g[p$fecha > origen] <- NA
+  for (i in seq_len(nrow(cat_h))) {
+    limite <- origen %m+% months(cat_h$desfase[i])
+    p[[cat_h$nombre[i]]][p$fecha > limite] <- NA
+  }
+  filter(p, fecha <= origen %m+% months(HORIZONTE))
+}
+
+origen_final <- max(ultimo_objetivo$objetivo_hasta)
+
+# (i) En el último origen la regla no debe ocultar ningún dato que hoy exista en el archivo.
+verificacion_borde <- map_dfr(HOJAS_SECTOR, function(h) {
+  disp <- informacion_disponible(h, origen_final)
+  arch <- filter(paneles_base[[h]], fecha <= origen_final %m+% months(HORIZONTE))
+  tibble(hoja = h, valores_en_archivo = sum(!is.na(as.matrix(arch[-1]))),
+         valores_disponibles = sum(!is.na(as.matrix(disp[-1]))))
+})
+tabla(verificacion_borde, paste("Último origen", format(origen_final, "%Y-%m"),
+                                ": la regla reproduce la información del archivo"))
+stopifnot(all(verificacion_borde$valores_en_archivo == verificacion_borde$valores_disponibles))
+
+# (ii) Origen histórico: última fecha disponible de cada representación.
+origen_ejemplo <- as.Date("2015-06-01")
+verificacion_historica <- map_dfr(HOJAS_SECTOR, function(h) {
+  disp <- informacion_disponible(h, origen_ejemplo)
+  filter(catalogo_base, hoja == h) %>%
+    mutate(ultima_disponible = as.Date(map_dbl(nombre, function(v) {
+             z <- disp[[v]]; if (all(is.na(z))) NA_real_ else as.numeric(max(disp$fecha[!is.na(z)])) })),
+           limite   = origen_ejemplo %m+% months(desfase),
+           esperada = pmin(limite, ultima_fecha))
+}) %>% mutate(correcta = if_else(is.na(ultima_disponible), primera_fecha > limite, ultima_disponible == esperada))
+verificacion_historica %>%
+  group_by(hoja, desfase) %>%
+  summarise(representaciones = n(), sin_datos_aun = sum(is.na(ultima_disponible)),
+            ultima_disponible = max(ultima_disponible, na.rm = TRUE), todas_correctas = all(correcta), .groups = "drop") %>%
+  tabla(paste("Origen histórico", format(origen_ejemplo, "%Y-%m"), ": última fecha disponible por desfase"))
+stopifnot(all(verificacion_historica$correcta))
+```
+
+```{r informacion-pronostico-final}
+mes_objetivo <- origen_final %m+% months(HORIZONTE)
+informacion_final <- map_dfr(HOJAS_SECTOR, function(h) {
+  disp <- informacion_disponible(h, origen_final)
+  fila <- filter(disp, fecha == mes_objetivo)
+  cat_h <- filter(catalogo_base, hoja == h)
+  tibble(hoja = h, mes_a_pronosticar = mes_objetivo,
+         representaciones = nrow(cat_h),
+         con_dato_del_mes = sum(!is.na(unlist(fila[cat_h$nombre]))),
+         solo_rezagadas = paste(unique(cat_h$origen[is.na(unlist(fila[cat_h$nombre])) & cat_h$desfase < 1]), collapse = ", "),
+         ultimo_g_observado = format(max(disp$fecha[!is.na(disp$g)]), "%Y-%m"))
+})
+tabla(informacion_final, "Información disponible para pronosticar el mes objetivo")
+```
+
+<div class="interpretacion">
+La regla reproduce exactamente el borde actual del archivo y, en un origen histórico, limita cada representación a la fecha que dicta su desfase. Para pronosticar `r mes_es(mes_objetivo)`, casi todas las representaciones tienen ya el dato del mes objetivo. La excepción son las de la ENEC en construcción, que sólo llegan al mes anterior. En la evaluación histórica (entregas 3 a 5) se usará esta misma función en cada origen, de modo que ningún modelo verá información que no habría estado disponible bajo el supuesto validado.
+</div>
+
+## Ventanas de evaluación (decisión 4)
+
+```{r ventanas-evaluacion}
+ventanas <- tribble(
+  ~ventana,              ~inicio,               ~excluye_covid,
+  "Principal",           INICIO_EVAL_PRINCIPAL, FALSE,
+  "Principal sin COVID", INICIO_EVAL_PRINCIPAL, TRUE,
+  "Reciente",            INICIO_EVAL_RECIENTE,  FALSE
+) %>% mutate(fin = origen_final)
+
+en_ventana <- function(fecha, v) {
+  w <- ventanas[ventanas$ventana == v, ]
+  dentro <- fecha >= w$inicio & fecha <= w$fin
+  if (w$excluye_covid) dentro <- dentro & !(fecha >= PERIODO_COVID[1] & fecha <= PERIODO_COVID[2])
+  dentro
+}
+
+resumen_ventanas <- pmap_dfr(expand_grid(h = HOJAS_SECTOR, v = ventanas$ventana), function(h, v) {
+  p <- filter(panel_objetivo, hoja == h, !is.na(g))
+  dentro <- en_ventana(p$fecha, v)
+  tibble(hoja = h, ventana = v, primer_pronostico = min(p$fecha[dentro]), ultimo_pronostico = max(p$fecha[dentro]),
+         pronosticos = sum(dentro),
+         meses_covid_incluidos = sum(dentro & p$fecha >= PERIODO_COVID[1] & p$fecha <= PERIODO_COVID[2]),
+         g_previas_al_inicio = sum(p$fecha < ventanas$inicio[ventanas$ventana == v]))
+})
+tabla(resumen_ventanas, "Ventanas de evaluación: pronósticos a un mes y observaciones previas de g_t")
+```
+
+## Catálogo de transformaciones adicionales candidatas
+
+<div class="verificar">
+**Qué hace:** define las transformaciones adicionales del planteamiento (rezagos, cambios, promedios móviles, desviaciones respecto a tendencia e interacciones). Todas usan sólo información pasada y se aplican sobre las representaciones base. **No se calculan todas ni se seleccionan aquí:** se generarán dentro de cada ventana de entrenamiento y se elegirán con regularización y evaluación fuera de muestra. **Qué verificar:** el tamaño del espacio de candidatas, que justifica la regularización.
+</div>
+
+```{r catalogo-adicional}
+derivar <- function(z, operacion, k = 1) {
+  switch(operacion,
+         rezago        = dplyr::lag(z, k),                       # z_{t-k}
+         cambio_1      = z - dplyr::lag(z, 1),                   # aceleración: z_t - z_{t-1}
+         promedio_3    = promedio_movil(z, 3),                   # media de t, t-1, t-2
+         desviacion_36 = z - promedio_movil(z, 36),              # desviación respecto a la media de 36 meses
+         stop("Operación desconocida: ", operacion))
+}
+catalogo_adicional <- tribble(
+  ~bloque,        ~transformacion,                                 ~definicion,                                   ~aplica_a,
+  "Objetivo",     "Rezagos de g",                                  "g_{t-k}, k = 0,...,12 (k = 0 es el último dato observado)", "g_t",
+  "Objetivo",     "Rezagos 12 y 13 de g",                          "g_{t-11}, g_{t-12}: capturan los efectos base de las ventanas superpuestas", "g_t",
+  "Objetivo",     "Cambio y promedio de g",                        "g_t - g_{t-1}; promedio de g_t, g_{t-1}, g_{t-2}", "g_t",
+  "Predictores",  "Rezagos",                                       "z_{t+d-k}, k = 0,...,12, con d = desfase (k = 0 sólo si d = +1)", "Todas las representaciones base",
+  "Predictores",  "Cambio mensual de la variación anual",          "z_t - z_{t-1} (momentum)",                    "Representaciones anuales",
+  "Predictores",  "Promedio móvil de 3 meses",                     "Media de z_t, z_{t-1}, z_{t-2}",              "Todas",
+  "Predictores",  "Desviación respecto a tendencia",               "z_t - media de los 36 meses previos (hacia atrás)", "Niveles de difusión y balances",
+  "Predictores",  "Acumulado de 3 meses",                          "Variación anual del acumulado de 3 meses",    "Inversión pública (donde está definida)",
+  "Interacciones","Demanda externa × tipo de cambio",              "USA_PROD__va × TC__va",                       "Manufacturas",
+  "Interacciones","Otras",                                         "Sólo con justificación económica, evaluadas con regularización", "—"
+)
+tabla(catalogo_adicional, "Transformaciones adicionales candidatas (se generan dentro de cada ventana de entrenamiento)")
+
+tamano_espacio <- catalogo_base %>% count(hoja, name = "representaciones_base") %>%
+  mutate(con_rezagos_0_12 = representaciones_base * 13,
+         con_cambio_y_promedio = representaciones_base * 15,
+         objetivo_y_derivadas = 13 + 2,
+         observaciones_g = map_int(hoja, ~ sum(!is.na(panel_objetivo$g[panel_objetivo$hoja == .x])))) %>%
+  arrange(match(hoja, HOJAS_SECTOR))
+tabla(tamano_espacio, "Tamaño del espacio de predictores candidatos frente al número de observaciones")
+
+# Ejemplo de uso (sin selección): rezago 1 y cambio mensual de la producción de EE.UU.
+ejemplo_derivadas <- paneles_base$MANUF %>%
+  transmute(fecha, USA_PROD__va, rezago_1 = derivar(USA_PROD__va, "rezago", 1),
+            cambio_1 = derivar(USA_PROD__va, "cambio_1"), promedio_3 = derivar(USA_PROD__va, "promedio_3")) %>%
+  filter(fecha >= as.Date("2026-03-01"))
+tabla(ejemplo_derivadas, "Ejemplo: derivadas de USA_PROD__va en los últimos meses")
+```
+
+<div class="interpretacion">
+Con 13 rezagos por representación, el espacio de candidatos llega a cientos de columnas en manufacturas y construcción, con menos de 400 observaciones del objetivo. Esto confirma que la selección no puede hacerse por búsqueda exhaustiva ni con la muestra completa. Se usará regularización (LASSO / Elastic Net), selección por bloques y combinaciones de pronósticos, siempre dentro de cada ventana de entrenamiento.
+</div>
+
+## Gráficas de los predictores transformados
+
+<div class="verificar">
+**Qué hace:** grafica la representación principal de cada variable de origen. Para las variables de nivel es la variación anual; para la EMOE y los porcentajes, la diferencia anual; para los balances EMAER, el promedio de 12 meses; para la inversión pública, la variación anual del acumulado de 12 meses. **Qué verificar:** escalas plausibles y episodios comunes (2009, 2020).
+</div>
+
+```{r funcion-grafica-transformados}
+graficar_transformados <- function(h, ncol = 6) {
+  principales <- filter(catalogo_base, hoja == h, es_principal)
+  paneles_base[[h]] %>% select(fecha, all_of(principales$nombre)) %>%
+    pivot_longer(-fecha, names_to = "representacion", values_to = "valor") %>%
+    filter(!is.na(valor)) %>%
+    mutate(representacion = factor(representacion, levels = principales$nombre)) %>%
+    ggplot(aes(fecha, valor)) +
+    geom_hline(yintercept = 0, color = "grey70", linewidth = 0.3) +
+    geom_line(linewidth = 0.3, color = COLORES_SECTOR[[h]]) +
+    facet_wrap(~ representacion, scales = "free_y", ncol = ncol) +
+    scale_x_date(date_labels = "%y", date_breaks = "8 years") +
+    labs(title = paste0("Representación principal de cada predictor — ", NOMBRES_SECTOR[h]), x = NULL, y = NULL) +
+    theme(strip.text = element_text(size = 6.5), axis.text = element_text(size = 6))
+}
+```
+
+```{r grafica-transformados-manuf, fig.height = 12}
+graficar_transformados("MANUF", ncol = 7)
+```
+
+```{r grafica-transformados-const, fig.height = 8}
+graficar_transformados("CONST")
+```
+
+```{r grafica-transformados-elec-min, fig.height = 4.5}
+graficar_transformados("ELEC")
+graficar_transformados("MIN", ncol = 7)
+```
+
+<div class="interpretacion">
+Las representaciones principales son estacionarias en media y comparten los episodios de 2009 y 2020. Su escala es muy distinta entre variables (las variaciones anuales de vehículos y exportaciones en 2020–2021 superan ±100%), por lo que los modelos regularizados deberán estandarizar los predictores **dentro de cada ventana de entrenamiento**. Los balances EMAER en promedio de 12 meses son suaves y empiezan en diciembre de 2018; las diferencias anuales de la EMOE empiezan en 2005 (2007 para precios de insumos).
+</div>
+
+# Disponibilidad histórica y selección de información
+
+Esta sección corresponde a la entrega 3, salvo la subsección siguiente, que responde a la solicitud de probar los datos históricos de la EMAER. El resto de la sección (contribución marginal de todas las variables, comparación de muestras y modelos para paneles desbalanceados) se desarrollará en la entrega 3.
+
+## Reconstrucción histórica de la EMAER con la encuesta previa (prueba solicitada)
+
+### Construcción de la serie empalmada
+
+<div class="verificar">
+**Qué hace:** toma de la hoja `EMAER HIST` la encuesta previa de Banxico (2003–2017) para las 14 series que tienen equivalente en la EMAER actual. Verifica que, desde 2018, `EMAER HIST` sea idéntica a la EMAER de la pestaña `MANUF`, y construye la serie empalmada: encuesta previa hasta diciembre de 2017 y EMAER desde enero de 2018. Las observaciones anteriores a 2018 se etiquetan como "encuesta previa": son datos observados de otra encuesta, no imputaciones. **Qué verificar:** la igualdad exacta desde 2018 y que no se usen las filas de `EMAER HIST` posteriores al último dato válido (2026-11 y 2026-12 contienen ceros).
+</div>
+
+```{r emaer-empalme}
+# Columnas de EMAER HIST equivalentes a cada serie EMAER (verificadas en la sección de procedencia).
+mapa_emaer_hist <- tribble(
+  ~serie,    ~col_hist, ~concepto,
+  "EMAER1",  "N",  "Días laborados",
+  "EMAER2",  "O",  "Uso de capacidad instalada",
+  "EMAER3",  "S",  "Producción: aumente",       "EMAER4",  "T",  "Producción: sin cambio",  "EMAER5",  "U",  "Producción: disminuya",
+  "EMAER6",  "P",  "Ventas: aumente",           "EMAER7",  "Q",  "Ventas: sin cambio",      "EMAER8",  "R",  "Ventas: disminuya",
+  "EMAER9",  "V",  "Inventarios: aumente",      "EMAER10", "W",  "Inventarios: sin cambio", "EMAER11", "X",  "Inventarios: disminuya",
+  "EMAER15", "Y",  "Trabajadores: aumente",     "EMAER16", "Z",  "Trabajadores: sin cambio","EMAER17", "AA", "Trabajadores: disminuya")
+
+manuf <- datos_crudos$MANUF
+emaer_hist <- fuentes_ancho[, c("fecha", paste0("EMAER HIST!", mapa_emaer_hist$col_hist))]
+names(emaer_hist) <- c("fecha", mapa_emaer_hist$serie)
+
+# Igualdad exacta con la EMAER actual desde 2018-01 (fechas comunes con la pestaña MANUF)
+comparacion_2018 <- inner_join(select(manuf, fecha, all_of(mapa_emaer_hist$serie)), emaer_hist,
+                               by = "fecha", suffix = c("", "_hist")) %>%
+  filter(fecha >= INICIO_EMAER_NUEVA, !is.na(EMAER3))
+max_dif_2018 <- max(map_dbl(mapa_emaer_hist$serie, ~ max(abs(comparacion_2018[[.x]] - comparacion_2018[[paste0(.x, "_hist")]]))))
+stopifnot(max_dif_2018 < 1e-9)
+
+# Serie empalmada: encuesta previa hasta 2017-12; EMAER desde 2018-01. Sólo fechas de la pestaña MANUF.
+emaer_empalmada <- tibble(fecha = manuf$fecha)
+for (v in mapa_emaer_hist$serie) {
+  previa <- emaer_hist[[v]][match(manuf$fecha, emaer_hist$fecha)]
+  emaer_empalmada[[v]] <- ifelse(manuf$fecha < INICIO_EMAER_NUEVA, previa, manuf[[v]])
+}
+emaer_empalmada$fuente <- case_when(is.na(emaer_empalmada$EMAER3) ~ NA_character_,
+                                    emaer_empalmada$fecha < INICIO_EMAER_NUEVA ~ "Encuesta previa (2003-2017)",
+                                    TRUE ~ "EMAER (2018 en adelante)")
+emaer_empalmada %>% filter(!is.na(fuente)) %>% group_by(fuente) %>%
+  summarise(desde = min(fecha), hasta = max(fecha), meses = n(),
+            meses_completos = sum(complete.cases(across(all_of(mapa_emaer_hist$serie)))), .groups = "drop") %>%
+  tabla("Cobertura de la EMAER empalmada")
+cat("Diferencia máxima EMAER HIST vs. EMAER desde 2018:", max_dif_2018, "\n")
+cat("Filas de EMAER HIST posteriores a la última fecha de MANUF (no se usan):",
+    sum(emaer_hist$fecha > max(manuf$fecha)), "\n")
+```
+
+```{r emaer-sumas}
+# En la encuesta previa las tres categorías no siempre suman 100 (hay respuestas fuera de las tres opciones).
+sumas_trios <- emaer_empalmada %>% filter(!is.na(fuente)) %>%
+  transmute(fecha, fuente,
+            Produccion = EMAER3 + EMAER4 + EMAER5, Ventas = EMAER6 + EMAER7 + EMAER8,
+            Inventarios = EMAER9 + EMAER10 + EMAER11, Trabajadores = EMAER15 + EMAER16 + EMAER17) %>%
+  pivot_longer(-c(fecha, fuente), names_to = "pregunta", values_to = "suma")
+sumas_trios %>% group_by(fuente, pregunta) %>%
+  summarise(minimo = min(suma), mediana = median(suma), maximo = max(suma),
+            meses_bajo_99 = sum(suma < 99), .groups = "drop") %>%
+  tabla("Suma de las tres categorías de respuesta por encuesta", digitos = 1)
+```
+
+### Compatibilidad entre las dos encuestas
+
+<div class="verificar">
+**Qué hace:** construye los balances empalmados (Aumente − Disminuya) de producción, ventas, inventarios y trabajadores y los compara entre encuestas. Muestra niveles medios por periodo, la proporción "sin cambio" y la correlación de cada indicador con $g_t$ dentro de cada encuesta (sin el periodo COVID). **Por qué:** el empalme sólo es útil si las dos encuestas miden lo mismo; un cambio de nivel se puede absorber, pero un cambio en la relación con $g_t$ no. **Qué verificar:** si las correlaciones con $g_t$ son parecidas antes y después de 2018.
+</div>
+
+```{r emaer-balances-empalmados}
+# Balances empalmados e indicadores preespecificados para la prueba.
+construir_indicadores_emaer <- function(d) {
+  b <- tibble(fecha = d$fecha,
+              B_PROD   = d$EMAER3  - d$EMAER5,  B_VENTAS = d$EMAER6  - d$EMAER8,
+              B_INV    = d$EMAER9  - d$EMAER11, B_TRAB   = d$EMAER15 - d$EMAER17)
+  tibble(fecha = d$fecha,
+         B_PROD_niv   = b$B_PROD,                          # balance mensual de producción
+         B_PROD_p12   = promedio_movil(b$B_PROD, 12),      # promedio de 12 meses (comparable con g)
+         B_VENTAS_niv = b$B_VENTAS,
+         B_VENTAS_p12 = promedio_movil(b$B_VENTAS, 12),
+         USO_d12      = representar(d$EMAER2, "dif_anual"),# uso de capacidad: diferencia anual
+         DIAS_d12     = representar(d$EMAER1, "dif_anual"),# días laborados: diferencia anual
+         B_INV_niv    = b$B_INV, B_TRAB_niv = b$B_TRAB, SIN_CAMBIO_PROD = d$EMAER4)
+}
+ind_empalmada <- construir_indicadores_emaer(emaer_empalmada)
+# Versión sólo con la EMAER actual (NA antes de 2018), para comparar.
+ind_nueva <- construir_indicadores_emaer(mutate(emaer_empalmada,
+                                                across(all_of(mapa_emaer_hist$serie), ~ ifelse(fecha < INICIO_EMAER_NUEVA, NA, .x))))
+INDICADORES_PRUEBA <- c("B_PROD_niv", "B_PROD_p12", "B_VENTAS_niv", "B_VENTAS_p12", "USO_d12", "DIAS_d12")
+```
+
+```{r grafica-emaer-empalmada, fig.height = 6.5}
+ind_empalmada %>% left_join(select(emaer_empalmada, fecha, fuente), by = "fecha") %>%
+  filter(!is.na(fuente)) %>%
+  select(fecha, fuente, `Balance producción` = B_PROD_niv, `Balance ventas` = B_VENTAS_niv,
+         `Balance inventarios` = B_INV_niv, `Balance trabajadores` = B_TRAB_niv,
+         `Producción: % sin cambio` = SIN_CAMBIO_PROD) %>%
+  pivot_longer(-c(fecha, fuente)) %>%
+  ggplot(aes(fecha, value, color = fuente)) +
+  geom_line(linewidth = 0.4) +
+  geom_vline(xintercept = INICIO_EMAER_NUEVA, linetype = "dashed") +
+  facet_wrap(~ name, scales = "free_y", ncol = 2) +
+  scale_color_manual(values = c("#2563A8", "#C0392B")) +
+  labs(title = "EMAER empalmada: encuesta previa (2003-2017) y EMAER (2018+)",
+       subtitle = "Balances = Aumente − Disminuya (pp). Línea discontinua: cambio de encuesta",
+       x = NULL, y = NULL, color = NULL)
+```
+
+```{r emaer-compatibilidad}
+periodos_emaer <- tribble(
+  ~periodo,                            ~inicio,                 ~fin,
+  "Previa 2004-2007",                  as.Date("2004-01-01"),   as.Date("2007-12-01"),
+  "Previa 2012-2017",                  as.Date("2012-01-01"),   as.Date("2017-12-01"),
+  "EMAER 2018-01 a 2020-02",           as.Date("2018-01-01"),   as.Date("2020-02-01"),
+  "EMAER 2022-2026",                   as.Date("2022-01-01"),   origen_final)
+niveles_periodo <- pmap_dfr(periodos_emaer, function(periodo, inicio, fin) {
+  ind_empalmada %>% filter(fecha >= inicio, fecha <= fin) %>%
+    # la desviación estándar se calcula antes de que across() sustituya las columnas por su media
+    summarise(de_B_PROD = sd(B_PROD_niv, na.rm = TRUE), de_B_VENTAS = sd(B_VENTAS_niv, na.rm = TRUE),
+              across(c(B_PROD_niv, B_VENTAS_niv, B_INV_niv, B_TRAB_niv, SIN_CAMBIO_PROD), ~ mean(.x, na.rm = TRUE))) %>%
+    mutate(periodo = periodo, .before = 1)
+})
+tabla(niveles_periodo, "Promedio de los balances y de la proporción 'sin cambio', y desviación estándar mensual de los balances, por periodo (pp)", digitos = 1)
+
+g_manuf <- panel_objetivo %>% filter(hoja == "MANUF") %>% select(fecha, g)
+correlacion_encuesta <- map_dfr(INDICADORES_PRUEBA, function(ind) {
+  d <- left_join(g_manuf, select(ind_empalmada, fecha, x = all_of(ind)), by = "fecha") %>%
+    filter(!is.na(g), !is.na(x))
+  previa <- d$fecha < INICIO_EMAER_NUEVA
+  nueva  <- d$fecha >= as.Date("2019-01-01") & !(d$fecha >= PERIODO_COVID[1] & d$fecha <= PERIODO_COVID[2])
+  tibble(indicador = ind,
+         n_previa = sum(previa), corr_previa_2004_2017 = cor(d$g[previa], d$x[previa]),
+         n_emaer = sum(nueva), corr_emaer_2019_2026_sin_covid = cor(d$g[nueva], d$x[nueva]))
+})
+tabla(correlacion_encuesta, "Correlación contemporánea con g_t de manufacturas, dentro de cada encuesta (descriptiva)")
+```
+
+### Prueba fuera de muestra
+
+<div class="verificar">
+**Qué hace:** evalúa si la EMAER empalmada mejora el pronóstico a un mes de la variación anual de manufacturas. **Diseño preespecificado** (fijado antes de ver resultados; nada se selecciona con la muestra de evaluación):
+
+- **Ecuación:** pronóstico directo $\hat g_{t+1} = a + b\, g_t + c\, x_{t+1}$, estimado por MCO con **ventana expansiva** y reestimado en cada origen. La EMAER tiene desfase +1, así que $x_{t+1}$ está disponible en $t$ (decisión 3). El entrenamiento en el origen $t$ sólo usa pares $(g_s, g_{s-1}, x_s)$ con $s \le t$. Se exige un mínimo de `r MIN_ENTRENAMIENTO` observaciones.
+- **Modelos:** (i) último dato observado; (ii) AR(1) directo sin EMAER; (iii) EMAER sólo desde 2018; (iv) EMAER empalmada; (v) EMAER empalmada más una indicadora de la encuesta nueva (desde 2018-01), que absorbe un cambio de nivel entre encuestas.
+- **Indicadores** $x$ (uno por modelo; se reportan todos): balance de producción y de ventas (nivel y promedio de 12 meses), uso de capacidad (diferencia anual) y días laborados (diferencia anual).
+- **Ventanas:** reciente (2022-01 en adelante; los cinco modelos en las mismas fechas), principal (2012-01 en adelante) y principal sin COVID. En la ventana principal no se incluye el modelo (iii), que no existe antes de 2021.
+- **Métricas:** RMSE, MAE, sesgo, acierto en la dirección del cambio, RMSE relativo al AR(1) y prueba de Diebold–Mariano con corrección de Harvey–Leybourne–Newbold y varianza HAC. Por la dependencia serial de $g_t$ y el tamaño de muestra, el valor p de la prueba es **indicativo**.
+
+Estas regresiones son instrumentos de prueba, no los modelos finales.
+</div>
+
+```{r funciones-prueba-oos}
+# Pronóstico directo a un mes con ventana expansiva. datos: fecha, g, g_l1 (= g_{t-1}) y regresores.
+pronosticar_directo <- function(datos, regresores, fechas_objetivo, min_obs = MIN_ENTRENAMIENTO) {
+  map_dfr(fechas_objetivo, function(f) {
+    t0  <- f %m-% months(HORIZONTE)
+    ent <- datos[datos$fecha <= t0, c("g", "g_l1", regresores), drop = FALSE]
+    ent <- ent[complete.cases(ent), , drop = FALSE]
+    obj <- datos[datos$fecha == f, c("g_l1", regresores), drop = FALSE]
+    if (nrow(ent) < min_obs || nrow(obj) != 1 || anyNA(obj))
+      return(tibble(fecha = f, pronostico = NA_real_, n_entrenamiento = nrow(ent)))
+    X  <- cbind(1, as.matrix(ent[, -1, drop = FALSE]))
+    x0 <- c(1, as.numeric(unlist(obj)))
+    usar <- c(TRUE, apply(X[, -1, drop = FALSE], 2, function(z) sd(z) > 0))  # columnas sin variación fuera
+    b  <- qr.coef(qr(X[, usar, drop = FALSE]), ent$g)
+    tibble(fecha = f, pronostico = sum(x0[usar] * b), n_entrenamiento = nrow(ent))
+  })
+}
+
+# Prueba de Diebold-Mariano (pérdida cuadrática) con corrección HLN y varianza Newey-West.
+prueba_dm <- function(e1, e2, h = HORIZONTE) {
+  ok <- !is.na(e1) & !is.na(e2); d <- e1[ok]^2 - e2[ok]^2; n <- length(d)
+  if (n < 12 || sd(d) == 0) return(NA_real_)
+  L  <- max(h - 1, floor(n^(1/3)))
+  dc <- d - mean(d)
+  gam <- vapply(0:L, function(k) sum(dc[(k + 1):n] * dc[1:(n - k)]) / n, numeric(1))
+  v  <- gam[1] + 2 * sum((1 - seq_len(L) / (L + 1)) * gam[-1])
+  estad <- mean(d) / sqrt(v / n) * sqrt((n + 1 - 2 * h + h * (h - 1) / n) / n)
+  2 * pt(-abs(estad), df = n - 1)
+}
+```
+
+```{r prueba-oos-emaer}
+fechas_prueba <- panel_objetivo %>% filter(hoja == "MANUF", !is.na(g), fecha >= INICIO_EVAL_PRINCIPAL) %>% pull(fecha)
+base_prueba <- g_manuf %>% mutate(g_l1 = dplyr::lag(g), indicadora_2018 = as.numeric(fecha >= INICIO_EMAER_NUEVA))
+
+t_inicio <- proc.time()[["elapsed"]]
+pron_ar <- pronosticar_directo(base_prueba, character(0), fechas_prueba) %>% mutate(modelo = "AR(1) directo")
+pron_naive <- base_prueba %>% filter(fecha %in% fechas_prueba) %>%
+  transmute(fecha, pronostico = g_l1, n_entrenamiento = NA_integer_, modelo = "Último dato observado")
+
+pron_emaer <- map_dfr(INDICADORES_PRUEBA, function(ind) {
+  d_nueva <- left_join(base_prueba, select(ind_nueva, fecha, x = all_of(ind)), by = "fecha")
+  d_emp   <- left_join(base_prueba, select(ind_empalmada, fecha, x = all_of(ind)), by = "fecha")
+  bind_rows(
+    pronosticar_directo(d_nueva, "x", fechas_prueba) %>% mutate(modelo = "EMAER sólo 2018+"),
+    pronosticar_directo(d_emp,   "x", fechas_prueba) %>% mutate(modelo = "EMAER empalmada"),
+    pronosticar_directo(d_emp,   c("x", "indicadora_2018"), fechas_prueba) %>%
+      mutate(modelo = "EMAER empalmada + indicadora 2018")
+  ) %>% mutate(indicador = ind)
+})
+cat("Tiempo de la prueba:", round(proc.time()[["elapsed"]] - t_inicio, 1), "segundos\n")
+
+pronosticos_prueba <- bind_rows(
+  crossing(indicador = INDICADORES_PRUEBA, bind_rows(pron_ar, pron_naive)),
+  pron_emaer) %>%
+  left_join(select(base_prueba, fecha, g, g_l1), by = "fecha") %>%
+  mutate(error = g - pronostico)
+
+pronosticos_prueba %>% filter(!is.na(pronostico)) %>% group_by(modelo, indicador) %>%
+  summarise(primer_pronostico = min(fecha), n = n(), entrenamiento_inicial = first(n_entrenamiento), .groups = "drop") %>%
+  tabla("Disponibilidad de pronósticos por modelo e indicador", altura = "320px")
+```
+
+```{r metricas-oos-emaer}
+modelos_por_ventana <- list(
+  "Reciente"            = c("Último dato observado", "AR(1) directo", "EMAER sólo 2018+",
+                            "EMAER empalmada", "EMAER empalmada + indicadora 2018"),
+  "Principal"           = c("Último dato observado", "AR(1) directo", "EMAER empalmada",
+                            "EMAER empalmada + indicadora 2018"),
+  "Principal sin COVID" = c("Último dato observado", "AR(1) directo", "EMAER empalmada",
+                            "EMAER empalmada + indicadora 2018"))
+
+metricas_prueba <- imap_dfr(modelos_por_ventana, function(modelos, v) {
+  map_dfr(INDICADORES_PRUEBA, function(ind) {
+    d <- pronosticos_prueba %>% filter(indicador == ind, modelo %in% modelos, en_ventana(fecha, v)) %>%
+      select(fecha, modelo, pronostico, error, g, g_l1)
+    # Mismas fechas para todos los modelos de la comparación
+    fechas_comunes <- d %>% group_by(fecha) %>% filter(n_distinct(modelo[!is.na(pronostico)]) == length(modelos)) %>%
+      pull(fecha) %>% unique()
+    d <- filter(d, fecha %in% fechas_comunes)
+    e_ar <- d %>% filter(modelo == "AR(1) directo") %>% arrange(fecha) %>% pull(error)
+    d %>% group_by(modelo) %>% arrange(fecha, .by_group = TRUE) %>%
+      summarise(n = n(), desde = min(fecha), RMSE = sqrt(mean(error^2)), MAE = mean(abs(error)),
+                sesgo = mean(-error),
+                acierto_direccion = if (first(modelo) == "Último dato observado") NA_real_ else
+                  100 * mean(sign(pronostico - g_l1) == sign(g - g_l1)),   # el último dato no predice cambio
+                p_DM_vs_AR = if (first(modelo) == "AR(1) directo") NA_real_ else prueba_dm(error, e_ar),
+                .groups = "drop") %>%
+      mutate(RMSE_rel_AR = RMSE / RMSE[modelo == "AR(1) directo"], ventana = v, indicador = ind)
+  })
+}) %>%
+  mutate(modelo = factor(modelo, levels = modelos_por_ventana$Reciente),
+         ventana = factor(ventana, levels = names(modelos_por_ventana))) %>%
+  arrange(ventana, indicador, modelo) %>%
+  select(ventana, indicador, modelo, n, desde, RMSE, MAE, sesgo, acierto_direccion, RMSE_rel_AR, p_DM_vs_AR)
+
+# Benchmarks (no dependen del indicador): una sola fila por ventana
+metricas_prueba %>% filter(modelo %in% c("Último dato observado", "AR(1) directo"), indicador == INDICADORES_PRUEBA[1]) %>%
+  select(-indicador, -p_DM_vs_AR) %>%
+  tabla("Benchmarks en cada ventana (mismas fechas que los modelos con EMAER)", digitos = 3)
+
+metricas_prueba %>% filter(!modelo %in% c("Último dato observado", "AR(1) directo")) %>%
+  tabla("Modelos con EMAER: métricas fuera de muestra por ventana e indicador", altura = "560px", digitos = 3)
+
+# Cifras que se citan en la interpretación (se calculan aquí; no se escriben a mano).
+BALANCES_PRUEBA <- c("B_PROD_niv", "B_PROD_p12", "B_VENTAS_niv", "B_VENTAS_p12")
+rel  <- function(v, m, ind = INDICADORES_PRUEBA)
+  metricas_prueba %>% filter(ventana == v, modelo == m, indicador %in% ind) %>% pull(RMSE_rel_AR)
+pval <- function(v, m, ind = INDICADORES_PRUEBA)
+  metricas_prueba %>% filter(ventana == v, modelo == m, indicador %in% ind) %>% pull(p_DM_vs_AR)
+rango <- function(x) paste0(sprintf("%.2f", min(x)), " a ", sprintf("%.2f", max(x)))
+fmt   <- function(x) sprintf("%.2f", x)
+fmtp  <- function(x) sprintf("%.3f", x)   # valores p
+ar_vs_naive <- metricas_prueba %>% filter(indicador == INDICADORES_PRUEBA[1], modelo == "Último dato observado") %>%
+  transmute(ventana, mejora_ar = 100 * (1 - 1 / RMSE_rel_AR))
+```
+
+```{r grafica-oos-emaer, fig.height = 5}
+metricas_prueba %>% filter(!modelo %in% c("AR(1) directo")) %>%
+  ggplot(aes(RMSE_rel_AR, indicador, color = modelo, shape = modelo)) +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  geom_point(size = 2.6, position = position_dodge(width = 0.6)) +
+  facet_wrap(~ ventana, nrow = 1) +
+  scale_color_manual(values = c("Último dato observado" = "grey50", "EMAER sólo 2018+" = "#D4A017",
+                                "EMAER empalmada" = "#2563A8", "EMAER empalmada + indicadora 2018" = "#C0392B")) +
+  labs(title = "RMSE relativo al AR(1) directo (menor que 1 = mejora)",
+       subtitle = "Pronóstico a un mes de la variación anual de manufacturas",
+       x = "RMSE / RMSE del AR(1)", y = NULL, color = NULL, shape = NULL) +
+  guides(color = guide_legend(nrow = 2))
+```
+
+```{r grafica-oos-acumulada, fig.height = 4.5}
+pronosticos_prueba %>%
+  filter(modelo %in% c("AR(1) directo", "EMAER empalmada"), fecha >= INICIO_EVAL_PRINCIPAL) %>%
+  select(fecha, indicador, modelo, error) %>%
+  pivot_wider(names_from = modelo, values_from = error) %>%
+  filter(!is.na(`AR(1) directo`), !is.na(`EMAER empalmada`)) %>%
+  group_by(indicador) %>% arrange(fecha, .by_group = TRUE) %>%
+  mutate(ganancia_acumulada = cumsum(`AR(1) directo`^2 - `EMAER empalmada`^2)) %>% ungroup() %>%
+  ggplot(aes(fecha, ganancia_acumulada, color = indicador)) +
+  annotate("rect", xmin = PERIODO_COVID[1], xmax = PERIODO_COVID[2], ymin = -Inf, ymax = Inf, alpha = 0.10, fill = "red") +
+  geom_hline(yintercept = 0) + geom_line(linewidth = 0.7) +
+  labs(title = "Ganancia acumulada de la EMAER empalmada frente al AR(1)",
+       subtitle = "Suma acumulada de (error² del AR − error² del modelo con EMAER); sube cuando la EMAER ayuda",
+       x = NULL, y = "Error cuadrático acumulado", color = NULL)
+```
+
+<div class="interpretacion" id="interpretacion-prueba-emaer">
+**Compatibilidad de las encuestas.** Los balances tienen niveles medios parecidos en las dos encuestas. Producción promedia `r fmt(niveles_periodo$B_PROD_niv[2])` pp en 2012–2017 (encuesta previa) y `r fmt(niveles_periodo$B_PROD_niv[3])` pp en 2018–2020 (EMAER); ventas, `r fmt(niveles_periodo$B_VENTAS_niv[2])` y `r fmt(niveles_periodo$B_VENTAS_niv[3])` pp. En cambio, la proporción "sin cambio" salta de `r fmt(niveles_periodo$SIN_CAMBIO_PROD[2])`% a `r fmt(niveles_periodo$SIN_CAMBIO_PROD[3])`%. Además, en la encuesta previa las tres categorías no siempre suman 100, porque hay respuestas fuera de las tres opciones. Por ambas razones, el empalme en balances es defendible y el empalme en porcentajes no lo sería.
+
+Además, los balances de la encuesta previa son algo más volátiles mes a mes. La desviación estándar del balance de producción es `r fmt(niveles_periodo$de_B_PROD[2])` pp en 2012–2017, frente a `r fmt(niveles_periodo$de_B_PROD[3])` pp en la EMAER antes del COVID. En ambas encuestas, el balance mensual en nivel apenas se correlaciona con $g_t$, mientras que su promedio de 12 meses sí. Es lo esperable para una pregunta sobre el cambio respecto al mes anterior.
+
+La relación con $g_t$ es parecida para el balance de producción en promedio de 12 meses (correlación `r fmt(correlacion_encuesta$corr_previa_2004_2017[correlacion_encuesta$indicador == "B_PROD_p12"])` en la encuesta previa y `r fmt(correlacion_encuesta$corr_emaer_2019_2026_sin_covid[correlacion_encuesta$indicador == "B_PROD_p12"])` en la EMAER sin COVID) y para el uso de capacidad (`r fmt(correlacion_encuesta$corr_previa_2004_2017[correlacion_encuesta$indicador == "USO_d12"])` y `r fmt(correlacion_encuesta$corr_emaer_2019_2026_sin_covid[correlacion_encuesta$indicador == "USO_d12"])`). En días laborados, en cambio, la relación prácticamente desaparece (`r fmt(correlacion_encuesta$corr_previa_2004_2017[correlacion_encuesta$indicador == "DIAS_d12"])` frente a `r fmt(correlacion_encuesta$corr_emaer_2019_2026_sin_covid[correlacion_encuesta$indicador == "DIAS_d12"])`).
+
+**Ventana reciente** (2022-01 a 2026-08; los cinco modelos con las mismas fechas):
+
+- Usar **sólo la EMAER desde 2018 empeora** el pronóstico frente al AR(1) en `r sum(rel("Reciente", "EMAER sólo 2018+") > 1)` de `r length(INDICADORES_PRUEBA)` indicadores (RMSE relativo de `r rango(rel("Reciente", "EMAER sólo 2018+", setdiff(INDICADORES_PRUEBA, "DIAS_d12")))` sin contar días laborados). El deterioro es significativo al 5% en `r sum(pval("Reciente", "EMAER sólo 2018+") < 0.05 & rel("Reciente", "EMAER sólo 2018+") > 1)` casos. Con apenas tres o cuatro años de datos, que además incluyen el COVID, los coeficientes se estiman mal.
+- Con la **serie empalmada**, las mismas especificaciones quedan prácticamente empatadas con el AR(1): `r rango(rel("Reciente", "EMAER empalmada", c(BALANCES_PRUEBA, "USO_d12")))` en balances y uso de capacidad. La historia de la encuesta previa estabiliza la estimación.
+- **Días laborados** es la excepción. La versión 2018+ mejora (`r fmt(rel("Reciente", "EMAER sólo 2018+", "DIAS_d12"))`, p = `r fmtp(pval("Reciente", "EMAER sólo 2018+", "DIAS_d12"))`, no significativa) y la empalmada empeora (`r fmt(rel("Reciente", "EMAER empalmada", "DIAS_d12"))`, p = `r fmtp(pval("Reciente", "EMAER empalmada", "DIAS_d12"))`). Esto es coherente con el cambio de su relación con $g_t$ entre encuestas.
+
+**Ventana principal** (2012–2026):
+
+- Con el periodo COVID, ningún indicador empalmado supera al AR(1): `r rango(rel("Principal", "EMAER empalmada"))`.
+- **Sin COVID**, varios mejoran ligeramente (`r rango(rel("Principal sin COVID", "EMAER empalmada"))`), pero ninguno de forma significativa al 5% (el menor valor p es `r fmtp(min(pval("Principal sin COVID", "EMAER empalmada")))`).
+- La **indicadora de encuesta nueva** no mejora en ninguna ventana: no hay un cambio de nivel en los balances que valga la pena corregir.
+
+**Conclusión.**
+
+1. Si la EMAER se usa, debe usarse la **serie empalmada en balances, sin indicadora**: la versión que empieza en 2018 deteriora los pronósticos.
+2. **Por sí sola, la EMAER no agrega una mejora robusta** sobre la dinámica propia de $g_t$ en manufacturas: en el mejor caso las ganancias son de pocos puntos porcentuales y no son significativas.
+3. **El AR(1) directo es un benchmark exigente:** su RMSE es `r paste0(fmt(ar_vs_naive$mejora_ar), "%", collapse = " / ")` menor que el del último dato observado (ventanas reciente / principal / principal sin COVID).
+
+**Propuesta para la entrega 3:**
+
+- Incluir los balances empalmados (producción, ventas, inventarios, trabajadores) y el uso de capacidad como un **bloque candidato con historia desde 2004**, y evaluar su contribución marginal junto con los indicadores duros.
+- Usar las series sin historia previa (renuncias, dificultades de contratación, inventarios respecto a ventas) sólo en la ventana reciente.
+- Tratar días laborados por separado, por la inestabilidad de su relación con $g_t$.
+</div>
+
+# Archivos de resultados {-}
+
+<div class="verificar">
+**Qué hace:** guarda los resultados de la entrega 2 (CSV y RDS) y escribe el libro de Excel con todos los resultados de las entregas 1 y 2. **Qué verificar:** que los archivos existan y que el libro tenga una hoja por tabla.
+</div>
+
+```{r guardar-entrega-2}
+guardar_csv_2 <- function(df, nombre) {
+  ruta <- file.path(DIR_RESULTADOS_2, paste0(nombre, ".csv"))
+  utils::write.csv(df, ruta, row.names = FALSE, fileEncoding = "UTF-8")
+  ruta
+}
+archivos_entrega_2 <- c(
+  guardar_csv_2(panel_objetivo, "objetivo_variacion_anual"),
+  guardar_csv_2(catalogo_base, "catalogo_representaciones_base"),
+  map_chr(HOJAS_SECTOR, ~ guardar_csv_2(paneles_base[[.x]], paste0("panel_base_", .x))),
+  guardar_csv_2(emaer_empalmada, "emaer_empalmada"),
+  guardar_csv_2(left_join(ind_empalmada, select(emaer_empalmada, fecha, fuente), by = "fecha"), "emaer_indicadores_empalmados"),
+  guardar_csv_2(pronosticos_prueba, "prueba_emaer_pronosticos"),
+  guardar_csv_2(metricas_prueba, "prueba_emaer_metricas"),
+  guardar_csv_2(resumen_ventanas, "ventanas_evaluacion")
+)
+saveRDS(list(panel_objetivo = panel_objetivo, paneles_base = paneles_base, catalogo_base = catalogo_base,
+             reglas_transformacion = reglas_transformacion, emaer_empalmada = emaer_empalmada,
+             indicadores_emaer = list(empalmada = ind_empalmada, nueva = ind_nueva),
+             pronosticos_prueba = pronosticos_prueba, metricas_prueba = metricas_prueba,
+             archivo = ARCHIVO_EXCEL, md5 = unname(tools::md5sum(ARCHIVO_EXCEL)), fecha_ejecucion = Sys.time()),
+        file.path(DIR_RESULTADOS_2, "variables_construidas.rds"))
+archivos_entrega_2 <- c(archivos_entrega_2, file.path(DIR_RESULTADOS_2, "variables_construidas.rds"))
+stopifnot(all(file.exists(archivos_entrega_2)))
+```
+
+```{r libro-resultados}
+hojas_resultados <- list(
+  "LEEME" = NULL,
+  "Decisiones"            = decisiones,
+  "Correcciones"          = cambios,
+  "Problemas"             = problemas,
+  "Diccionario"           = select(diccionario, -clase_diag),
+  "Procedencia"           = procedencia,
+  "Disponibilidad"        = disponibilidad,
+  "Borde_irregular"       = select(borde, hoja, variable, ultima_obs, desfase_meses, rezago_minimo_utilizable, disponibilidad_borde),
+  "Saltos_nivel"          = saltos,
+  "Correlaciones_resumen" = resumen_correlaciones,
+  "Muestras_acumuladas"   = muestras_acumuladas,
+  "Objetivo_g"            = pivot_wider(select(panel_objetivo, hoja, fecha, g), names_from = hoja, values_from = g),
+  "Resumen_g"             = resumen_g,
+  "Reglas_transformacion" = reglas_transformacion,
+  "Catalogo_base"         = catalogo_base,
+  "Catalogo_adicional"    = catalogo_adicional,
+  "Ventanas"              = resumen_ventanas,
+  "Panel_MANUF"           = paneles_base$MANUF,
+  "Panel_CONST"           = paneles_base$CONST,
+  "Panel_ELEC"            = paneles_base$ELEC,
+  "Panel_MIN"             = paneles_base$MIN,
+  "EMAER_empalmada"       = left_join(emaer_empalmada, ind_empalmada, by = "fecha") %>% relocate(fuente, .after = fecha),
+  "EMAER_compatibilidad"  = correlacion_encuesta,
+  "EMAER_prueba_metricas" = metricas_prueba,
+  "EMAER_prueba_pronost"  = pronosticos_prueba
+)
+descripcion_hojas <- c(
+  LEEME = "Esta hoja: contenido del libro",
+  Decisiones = "Decisiones validadas al cierre de la entrega 1",
+  Correcciones = "Cambios entre el libro original y el corregido (por variable)",
+  Problemas = "Problemas identificados, propuesta y estado",
+  Diccionario = "Descripción, unidad, fuente y tipo de cada variable",
+  Procedencia = "Verificación de cada variable contra su hoja fuente",
+  Disponibilidad = "Primera/última observación, % de disponibilidad e historia de cada variable",
+  Borde_irregular = "Desfase de la última observación de cada variable respecto al objetivo",
+  Saltos_nivel = "Saltos mensuales extremos y su interpretación",
+  Correlaciones_resumen = "Correlaciones descriptivas con g_t (muestra completa y sin COVID)",
+  Muestras_acumuladas = "Costo en muestra de exigir casos completos",
+  Objetivo_g = "Variación anual del objetivo (%), una columna por sector",
+  Resumen_g = "Estadísticas de la variación anual del objetivo",
+  Reglas_transformacion = "Representaciones base por tipo de variable",
+  Catalogo_base = "Catálogo de representaciones base con fechas, observaciones y desfase",
+  Catalogo_adicional = "Transformaciones adicionales candidatas (no seleccionadas)",
+  Ventanas = "Ventanas de evaluación y número de pronósticos",
+  Panel_MANUF = "Panel de manufacturas: fecha, g y representaciones base",
+  Panel_CONST = "Panel de construcción", Panel_ELEC = "Panel de electricidad", Panel_MIN = "Panel de minería",
+  EMAER_empalmada = "EMAER empalmada (encuesta previa 2003-2017 + EMAER 2018+) e indicadores",
+  EMAER_compatibilidad = "Correlación de los indicadores EMAER con g_t dentro de cada encuesta",
+  EMAER_prueba_metricas = "Prueba fuera de muestra de la EMAER: métricas",
+  EMAER_prueba_pronost = "Prueba fuera de muestra de la EMAER: pronósticos y errores")
+hojas_resultados$LEEME <- tibble(
+  hoja = names(descripcion_hojas), contenido = unname(descripcion_hojas),
+  filas = c(NA, map_int(hojas_resultados[-1], nrow)))
+stopifnot(identical(names(hojas_resultados), names(descripcion_hojas)))
+
+# Se usa writexl (libxlsxwriter): produce archivos .xlsx válidos sin dependencias externas.
+# Los factores se escriben como texto y las fechas como fechas de Excel.
+escribir_libro_resultados <- function(hojas, ruta) {
+  hojas <- map(hojas, ~ mutate(as_tibble(.x), across(where(is.factor), as.character)))
+  writexl::write_xlsx(hojas, ruta, format_headers = TRUE)
+}
+escribir_libro_resultados(hojas_resultados, ARCHIVO_RESULTADOS_XLSX)
+
+verificacion_libro <- tibble(hoja = excel_sheets(ARCHIVO_RESULTADOS_XLSX)) %>%
+  mutate(filas = map_int(hoja, ~ nrow(read_excel(ARCHIVO_RESULTADOS_XLSX, sheet = .x))),
+         filas_esperadas = map_int(hoja, ~ nrow(hojas_resultados[[.x]])))
+stopifnot(identical(verificacion_libro$hoja, names(hojas_resultados)),
+          all(verificacion_libro$filas == verificacion_libro$filas_esperadas))
+tabla(verificacion_libro, paste("Hojas del libro", ARCHIVO_RESULTADOS_XLSX))
+```
+
+# Resumen de la entrega 2 y puntos para validar {-}
+
+**Qué contiene esta entrega:**
+
+1. **Archivo corregido** (`datos/base_imai_corregida.xlsx`) con las dos correcciones aprobadas. `SHCP1` toma el total de `'SHCP REAL'!B` y `ELEC` empieza en 1993-01. Se verificó que no cambia nada más, que se conservan las conexiones de datos del libro y que todas las fórmulas se evalúan sin errores.
+2. **Variable objetivo** $g_t$ para los cuatro sectores, de `r format(min(verificacion_g$primera_g), "%Y-%m")` a `r format(max(verificacion_g$ultima_g), "%Y-%m")` (`r paste(unique(verificacion_g$n_g), collapse = "/")` observaciones por sector), sin huecos y verificada con un cálculo independiente.
+3. **Representaciones base de los predictores:** `r count(catalogo_base, hoja) %>% arrange(match(hoja, HOJAS_SECTOR)) %>% { paste0(NOMBRES_SECTOR[.$hoja], " ", .$n, collapse = ", ") }`, según reglas explícitas por tipo de variable. Se verificó que ninguna usa información futura.
+4. **Regla de disponibilidad** implementada (`informacion_disponible()`). Reproduce exactamente el borde actual del archivo y limita cada variable según su desfase en cualquier origen histórico.
+5. **Ventanas de evaluación:** principal desde 2012-01 (176 pronósticos, 16 en el periodo COVID) y reciente desde 2022-01 (56 pronósticos).
+6. **Catálogo de transformaciones adicionales** (rezagos, cambios, promedios, desviaciones e interacciones). Se generarán y seleccionarán dentro de cada ventana de entrenamiento.
+7. **Prueba de la EMAER histórica:** la serie empalmada en balances es preferible a la que empieza en 2018, pero por sí sola no mejora de forma robusta al AR(1).
+8. **Libro de resultados** (`resultados/resultados_pronostico_imai.xlsx`) con `r length(hojas_resultados)` hojas, más los CSV y RDS de `resultados/01_diagnostico` y `resultados/02_variables`.
+
+**Puntos para validar antes de la entrega 3:**
+
+1. Las reglas de representación base, en particular:
+   - la EMOE en nivel y en diferencia anual;
+   - la inversión pública como variación anual del acumulado de 12 meses;
+   - los balances EMAER en nivel, diferencia anual y promedio de 12 meses.
+2. Adoptar la EMAER empalmada en balances (sin indicadora) como bloque candidato desde 2004. Las series EMAER sin historia se evaluarían sólo en la ventana reciente y días laborados por separado.
+3. La ENOE (hueco de 2020): evaluar en la entrega 3 su exclusión frente a modelos que admiten faltantes, sin imputar con información posterior.
+4. Usar el AR(1) directo, además del último dato observado, como benchmark de referencia en las entregas 3 y 4.
+
+# Información de la sesión {-}
 
 ```{r sesion}
 sessionInfo()

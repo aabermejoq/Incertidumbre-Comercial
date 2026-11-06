@@ -1,0 +1,13 @@
+"hoja","ventana","primer_pronostico","ultimo_pronostico","pronosticos","meses_covid_incluidos","g_previas_al_inicio"
+"MANUF","Principal",2012-01-01,2026-08-01,176,16,216
+"MANUF","Principal sin COVID",2012-01-01,2026-08-01,160,0,216
+"MANUF","Reciente",2022-01-01,2026-08-01,56,0,336
+"CONST","Principal",2012-01-01,2026-08-01,176,16,216
+"CONST","Principal sin COVID",2012-01-01,2026-08-01,160,0,216
+"CONST","Reciente",2022-01-01,2026-08-01,56,0,336
+"ELEC","Principal",2012-01-01,2026-08-01,176,16,216
+"ELEC","Principal sin COVID",2012-01-01,2026-08-01,160,0,216
+"ELEC","Reciente",2022-01-01,2026-08-01,56,0,336
+"MIN","Principal",2012-01-01,2026-08-01,176,16,216
+"MIN","Principal sin COVID",2012-01-01,2026-08-01,160,0,216
+"MIN","Reciente",2022-01-01,2026-08-01,56,0,336
