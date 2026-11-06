@@ -4,3 +4,5 @@
 .Rhistory
 .RData
 .Rproj.user/
+*.knit.md
+*.utf8.md

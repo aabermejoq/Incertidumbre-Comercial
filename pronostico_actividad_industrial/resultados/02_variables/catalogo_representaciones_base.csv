@@ -131,13 +131,9 @@
 "ELEC","CFE6","volumen","Ventas: servicios del gobierno","var_anual",1,"CFE6__va",TRUE,1994-01-01,2026-09-01,393,0
 "ELEC","CFE7","volumen","Ventas: riego agrícola","var_anual",1,"CFE7__va",TRUE,1994-01-01,2026-09-01,393,0
 "ELEC","INPP","precio","INPP: electricidad, agua y gas por ductos (22)","var_anual",1,"INPP__va",TRUE,1995-01-01,2026-09-01,381,0
-"ELEC","ENOE","porcentaje","Participación de la industria extractiva y de la electricidad en la población ocupada del sector secundario","nivel",1,"ENOE__niv",FALSE,2005-01-01,2026-09-01,259,2
-"ELEC","ENOE","porcentaje","Participación de la industria extractiva y de la electricidad en la población ocupada del sector secundario","dif_anual",1,"ENOE__d12",TRUE,2006-01-01,2026-09-01,245,4
 "MIN","PETROLEO","volumen","Producción de petróleo crudo con condensados (serie original)","var_anual",1,"PETROLEO__va",TRUE,1994-01-01,2026-09-01,393,0
 "MIN","GAS","volumen","Producción de gas natural (serie original)","var_anual",1,"GAS__va",TRUE,1994-01-01,2026-09-01,393,0
 "MIN","IMSS_EX_P","empleo","Puestos de trabajo permanentes afiliados al IMSS: industrias extractivas","var_anual",1,"IMSS_EX_P__va",TRUE,1998-07-01,2026-09-01,339,0
 "MIN","IMSS_EX_E","empleo","Puestos de trabajo eventuales urbanos afiliados al IMSS: industrias extractivas","var_anual",1,"IMSS_EX_E__va",TRUE,1998-07-01,2026-09-01,339,0
 "MIN","INPP1","precio","INPP: minería sin petróleo (21)","var_anual",1,"INPP1__va",TRUE,1995-01-01,2026-09-01,381,0
 "MIN","INPP2","precio","INPP: minería con petróleo (21)","var_anual",1,"INPP2__va",TRUE,1995-01-01,2026-09-01,381,0
-"MIN","ENOE","porcentaje","Participación de la industria extractiva y de la electricidad en la población ocupada del sector secundario","nivel",1,"ENOE__niv",FALSE,2005-01-01,2026-09-01,259,2
-"MIN","ENOE","porcentaje","Participación de la industria extractiva y de la electricidad en la población ocupada del sector secundario","dif_anual",1,"ENOE__d12",TRUE,2006-01-01,2026-09-01,245,4
